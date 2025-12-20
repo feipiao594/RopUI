@@ -1,35 +1,12 @@
 #include <algorithm>
 
-#include "eventloop.h"
+#include <log.hpp>
+#include "eventloop_core.h"
 
 namespace RopEventloop {
 
 IEventLoopCore::IEventLoopCore(std::unique_ptr<IEventCoreBackend> backend)
     : backend_(std::move(backend)) {}
-
-void IEventLoopCore::requestExit() {
-    exit_requested_ = true;
-}
-
-bool IEventLoopCore::shouldExit() const {
-    return exit_requested_;
-}
-
-void IEventLoopCore::setLoopBegin(std::function<void()> fn) {
-    on_loop_begin_ = std::move(fn);
-}
-
-void IEventLoopCore::setLoopEnd(std::function<void()> fn) {
-    on_loop_end_ = std::move(fn);
-}
-
-void IEventLoopCore::unsetLoopBegin() {
-    on_loop_begin_ = nullptr;
-}
-
-void IEventLoopCore::unsetLoopEnd() {
-    on_loop_end_ = nullptr;
-}
 
 void IEventLoopCore::addSource(std::unique_ptr<IEventSource> source) {
     IEventSource* raw = source.get();
@@ -41,23 +18,11 @@ void IEventLoopCore::removeSource(IEventSource* source) {
     pending_remove_.push_back(source);
 }
 
-void IEventLoopCore::run() {
-    exit_requested_ = false;
-    while (!shouldExit()) {
-        if (on_loop_begin_) {
-            on_loop_begin_();
-        }
-
-        backend_->wait();
-
-        dispatchRawEvents();
-
-        applyPendingChanges();
-
-        if (on_loop_end_) {
-            on_loop_end_();
-        }
-    }
+void IEventLoopCore::runOnce(int timeout) {
+    LOG(DEBUG)("event loop iteration started");
+    backend_->wait(timeout);
+    dispatchRawEvents();
+    applyPendingChanges();
 }
 
 void IEventLoopCore::dispatchRawEvents() {

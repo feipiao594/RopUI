@@ -1,56 +1,62 @@
-#include "poll_eventloop.h"
-
 #include <cassert>
 #include <errno.h>
 #include <cstring>
 
-namespace RopEventloop {
+#include <log.hpp>
 
-LinuxPollEventSource::LinuxPollEventSource(int fd, short events)
+#include "poll_backend.h"
+
+
+namespace RopEventloop::Linux {
+
+PollEventSource::PollEventSource(int fd, short events)
     : fd_(fd), events_(events) {}
 
-void LinuxPollEventSource::arm(IEventCoreBackend& backend) {
+void PollEventSource::arm(IEventCoreBackend& backend) {
     if (armed_) {
+        LOG(WARN)("try arm fd %d but it already armed", fd_);
         return;
     }
 
-    auto& poll_backend = static_cast<LinuxPollBackend&>(backend);
+    auto& poll_backend = static_cast<PollBackend&>(backend);
     poll_backend.registerFd(fd_, events_);
     armed_ = true;
 }
 
-void LinuxPollEventSource::disarm(IEventCoreBackend& backend) {
+void PollEventSource::disarm(IEventCoreBackend& backend) {
     if (!armed_) {
+        LOG(WARN)("try disarm fd %d but it not be armed", fd_);
         return;
     }
 
-    auto& poll_backend = static_cast<LinuxPollBackend&>(backend);
+    auto& poll_backend = static_cast<PollBackend&>(backend);
     poll_backend.unregisterFd(fd_);
     armed_ = false;
 }
 
-bool LinuxPollEventSource::matches(const void* raw_event) const {
-    auto* ev = static_cast<const LinuxPollRawEvent*>(raw_event);
+bool PollEventSource::matches(const void* raw_event) const {
+    auto* ev = static_cast<const PollRawEvent*>(raw_event);
     return ev->fd == fd_;
 }
 
-const LinuxPollRawEvent*
-LinuxPollEventSource::asPollEvent(const void* raw_event) const {
-    return static_cast<const LinuxPollRawEvent*>(raw_event);
+const PollRawEvent*
+PollEventSource::asPollEvent(const void* raw_event) const {
+    return static_cast<const PollRawEvent*>(raw_event);
 }
 
-LinuxPollBackend::LinuxPollBackend() = default;
+PollBackend::PollBackend() = default;
 
-void LinuxPollBackend::addSource(IEventSource* /*source*/) {
-    // 幂等：LinuxPollBackend 不需要在这里做任何事
+void PollBackend::addSource(IEventSource* /*source*/) {
+    // 幂等：PollBackend 不需要在这里做任何事
     // source 的实际 fd 注册由 source->arm() 完成
 }
 
-void LinuxPollBackend::removeSource(IEventSource* /*source*/) {
+void PollBackend::removeSource(IEventSource* /*source*/) {
     // 幂等：source->disarm() 应该已经清理了 fd
 }
 
-void LinuxPollBackend::registerFd(int fd, short events) {
+void PollBackend::registerFd(int fd, short events) {
+    LOG(DEBUG)("registering fd %d with events 0x%04x", fd, events);
     auto it = fd_index_.find(fd);
     if (it != fd_index_.end()) {
         // 已存在：更新监听事件
@@ -67,10 +73,11 @@ void LinuxPollBackend::registerFd(int fd, short events) {
     pollfds_.push_back(pfd);
 }
 
-void LinuxPollBackend::unregisterFd(int fd) {
+void PollBackend::unregisterFd(int fd) {
     auto it = fd_index_.find(fd);
     if (it == fd_index_.end()) {
         // 不存在：幂等 no-op
+        LOG(WARN)("try unregister fd %d but it not registered", fd);
         return;
     }
 
@@ -86,20 +93,16 @@ void LinuxPollBackend::unregisterFd(int fd) {
     fd_index_.erase(it);
 }
 
-void LinuxPollBackend::wait() {
+void PollBackend::wait(int timeout) {
     ready_events_.clear();
 
-    if (pollfds_.empty()) {
-        // 没有 fd，避免 busy-loop，直接阻塞一点
-        ::poll(nullptr, 0, -1);
-        return;
-    }
+    LOG(DEBUG)("poll waiting on %zu fds", pollfds_.size());
 
     int ret;
     do {
-        ret = ::poll(pollfds_.data(),
+        ret = ::poll(pollfds_.empty() ? nullptr : pollfds_.data(),
                      static_cast<nfds_t>(pollfds_.size()),
-                     -1);
+                     timeout);
     } while (ret < 0 && errno == EINTR);
 
     if (ret <= 0) {
@@ -109,37 +112,37 @@ void LinuxPollBackend::wait() {
     for (const auto& pfd : pollfds_) {
         if (pfd.revents != 0) {
             ready_events_.push_back(
-                LinuxPollRawEvent{pfd.fd, pfd.revents});
+                PollRawEvent{pfd.fd, pfd.revents});
         }
     }
 }
 
-RawEventSpan LinuxPollBackend::rawEvents() const {
+
+RawEventSpan PollBackend::rawEvents() const {
     return RawEventSpan{
         .data   = ready_events_.data(),
         .count  = ready_events_.size(),
-        .stride = sizeof(LinuxPollRawEvent)
+        .stride = sizeof(PollRawEvent)
     };
 }
 
-LinuxPollEventLoopCore::LinuxPollEventLoopCore()
-    : IEventLoopCore(std::make_unique<LinuxPollBackend>()) {
+PollEventLoopCore::PollEventLoopCore()
+    : IEventLoopCore(std::make_unique<PollBackend>()) {
 }
 
 
 SocketEventSource::SocketEventSource(int fd,
                                      short events,
                                      Callback cb)
-    : LinuxPollEventSource(fd, events),
+    : PollEventSource(fd, events),
       callback_(std::move(cb)) {}
 
 void SocketEventSource::dispatch(const void* raw_event) {
-    const LinuxPollRawEvent* ev = asPollEvent(raw_event);
+    const PollRawEvent* ev = asPollEvent(raw_event);
 
     if (callback_) {
         callback_(ev->revents);
     }
 }
-
 
 }

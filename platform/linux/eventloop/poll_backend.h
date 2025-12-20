@@ -2,22 +2,23 @@
 #define _ROP_POLL_PLATFORM_EVENTLOOP__BACKEND_H
 
 #include <vector>
+#include <functional>
 #include <unordered_map>
 #include <poll.h>
 
-#include "../../eventloop.h"
+#include "../../eventloop_core.h"
 
-namespace RopEventloop {
+namespace RopEventloop::Linux {
 
-struct LinuxPollRawEvent {
+struct PollRawEvent {
     int fd;
     short revents;
 };
 
-class LinuxPollEventSource : public IEventSource {
+class PollEventSource : public IEventSource {
 public:
-    explicit LinuxPollEventSource(int fd, short events);
-    ~LinuxPollEventSource() override = default;
+    explicit PollEventSource(int fd, short events);
+    ~PollEventSource() override = default;
 
     void arm(IEventCoreBackend& backend) override;
     void disarm(IEventCoreBackend& backend) override;
@@ -28,7 +29,7 @@ protected:
     int fd() const { return fd_; }
     short events() const { return events_; }
 
-    const LinuxPollRawEvent* asPollEvent(const void* raw_event) const;
+    const PollRawEvent* asPollEvent(const void* raw_event) const;
 
 private:
     int fd_;
@@ -36,15 +37,15 @@ private:
     bool armed_ = false;
 };
 
-class LinuxPollBackend final : public IEventCoreBackend {
+class PollBackend final : public IEventCoreBackend {
 public:
-    LinuxPollBackend();
-    ~LinuxPollBackend() override = default;
+    PollBackend();
+    ~PollBackend() override = default;
 
     void addSource(IEventSource* source) override;
     void removeSource(IEventSource* source) override;
 
-    void wait() override;
+    void wait(int timeout) override;
 
     RawEventSpan rawEvents() const override;
 
@@ -56,19 +57,19 @@ private:
     std::vector<pollfd> pollfds_;
     std::unordered_map<int, size_t> fd_index_;
 
-    std::vector<LinuxPollRawEvent> ready_events_;
+    std::vector<PollRawEvent> ready_events_;
 };
 
 
-class LinuxPollEventLoopCore final : public IEventLoopCore {
+class PollEventLoopCore final : public IEventLoopCore {
 public:
-    LinuxPollEventLoopCore();
+    PollEventLoopCore();
 
-    ~LinuxPollEventLoopCore() override = default;
+    ~PollEventLoopCore() override = default;
 };
 
 
-class SocketEventSource final : public LinuxPollEventSource {
+class SocketEventSource final : public PollEventSource {
 public:
     using Callback = std::function<void(short revents)>;
 

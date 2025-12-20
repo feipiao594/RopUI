@@ -1,9 +1,8 @@
-#ifndef _ROP_PLATFORM_EVENTLOOP_H
-#define _ROP_PLATFORM_EVENTLOOP_H
+#ifndef _ROP_PLATFORM_EVENTLOOP_CORE_H
+#define _ROP_PLATFORM_EVENTLOOP_CORE_H
 
 #include <memory>
 #include <vector>
-#include <functional>
 #include <cstddef>
 
 namespace RopEventloop {
@@ -24,7 +23,7 @@ public:
     virtual void addSource(IEventSource* source) = 0;
     virtual void removeSource(IEventSource* source) = 0;
 
-    virtual void wait() = 0;
+    virtual void wait(int timeout) = 0;
 
     virtual RawEventSpan rawEvents() const = 0;
 };
@@ -44,26 +43,20 @@ class IEventLoopCore {
 public:
     virtual ~IEventLoopCore() = default;
 
-    void run();
-
-    void requestExit();
-
+    void applyInitialChanges() {
+        applyPendingChanges();
+    }
+    void runOnce(int timeout = -1);
+    
     void addSource(std::unique_ptr<IEventSource> source);
     void removeSource(IEventSource* source);
-
-    void setLoopBegin(std::function<void()> fn);
-    void setLoopEnd(std::function<void()> fn);
-    void unsetLoopBegin();
-    void unsetLoopEnd();
-
-protected:
+    
+    protected:
     explicit IEventLoopCore(std::unique_ptr<IEventCoreBackend> backend);
-
-    virtual bool shouldExit() const;
-
-private:
-    void applyPendingChanges();
+    
+    private:
     void dispatchRawEvents();
+    void applyPendingChanges();
 
 private:
     std::unique_ptr<IEventCoreBackend> backend_;
@@ -72,13 +65,10 @@ private:
     std::vector<IEventSource*> pending_add_;
     std::vector<IEventSource*> pending_remove_;
 
-    std::function<void()> on_loop_begin_;
-    std::function<void()> on_loop_end_;
-
     bool exit_requested_ = false;
     bool in_dispatch_ = false;
 };
 
 }
 
-#endif //_ROP_PLATFORM_EVENTLOOP_H
+#endif //_ROP_PLATFORM_EVENTLOOP_CORE_H
