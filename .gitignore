@@ -42,3 +42,4 @@
 
 # middle product files
 /build
+.cache
