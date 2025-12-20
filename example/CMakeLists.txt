@@ -1,0 +1,2 @@
+add_subdirectory(log_test)
+add_subdirectory(poll_linux_test)

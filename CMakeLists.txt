@@ -1,0 +1,37 @@
+cmake_minimum_required(VERSION 3.14)
+
+project(ropui)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(EXPORT_COMPILE_COMMANDS ON)
+
+option(ROPUI_BUILD_EXAMPLES "Build examples" ON)
+
+add_subdirectory(deps)
+# add_subdirectory(graphic)
+add_subdirectory(platform)
+add_subdirectory(utils)
+# add_subdirectory(vg)
+
+add_library(ropui STATIC)
+
+target_sources(ropui PRIVATE
+    $<TARGET_OBJECTS:ropui_platform>
+    $<TARGET_OBJECTS:glad>
+)
+
+target_include_directories(ropui
+    PUBLIC
+        ${PROJECT_SOURCE_DIR}
+)
+
+target_link_libraries(ropui
+    PUBLIC
+        ropui_log
+)
+
+if(ROPUI_BUILD_EXAMPLES)
+add_subdirectory(example)
+endif()
