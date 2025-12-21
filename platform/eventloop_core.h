@@ -51,11 +51,11 @@ public:
     void addSource(std::unique_ptr<IEventSource> source);
     void removeSource(IEventSource* source);
     
-    protected:
+protected:
     explicit IEventLoopCore(std::unique_ptr<IEventCoreBackend> backend);
+    virtual void dispatchRawEvents();
     
-    private:
-    void dispatchRawEvents();
+private:
     void applyPendingChanges();
 
 private:
@@ -65,7 +65,6 @@ private:
     std::vector<IEventSource*> pending_add_;
     std::vector<IEventSource*> pending_remove_;
 
-    bool exit_requested_ = false;
     bool in_dispatch_ = false;
 };
 

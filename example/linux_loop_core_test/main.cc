@@ -10,9 +10,8 @@
 
 #include <log.hpp>
 
-#include <platform/linux/eventloop/poll_backend.h>
-#include <platform/linux/eventloop/epoll_backend.h>
-// #include <platform/linux/eventloop/uring_backend.h>
+#include <platform/linux/schedule/poll_backend.h>
+#include <platform/linux/schedule/epoll_backend.h>
 
 using namespace RopEventloop;
 
@@ -21,7 +20,6 @@ using namespace RopEventloop;
 enum class BackendType {
     Poll,
     Epoll,
-    // Uring,
 };
 
 static const char* backendName(BackendType type) {
@@ -67,7 +65,6 @@ public:
 
     void requestExit() {
         exit_requested_ = true;
-        // TODO: wakeup fd / eventfd
     }
 
 private:
@@ -104,13 +101,13 @@ createSocketSource(
 
     switch (type) {
     case BackendType::Poll:
-        return std::make_unique<PollSocketEventSource>(
+        return std::make_unique<PollReadinessEventSource>(
             fd,
             interest,
             std::move(user_cb));
 
     case BackendType::Epoll:
-        return std::make_unique<EpollSocketEventSource>(
+        return std::make_unique<EpollReadinessEventSource>(
             fd,
             /* epoll interest */ interest,
             [cb = std::move(user_cb)](uint32_t epoll_events) {
@@ -141,8 +138,7 @@ int main(int argc, char** argv) {
         std::string arg = argv[1];
         if (arg == "poll")  backend = BackendType::Poll;
         if (arg == "epoll") backend = BackendType::Epoll;
-        // if (arg == "uring") backend = BackendType::Uring;
-    }
+    } 
 
     logger::setMinLevel(LogLevel::INFO);
     LOG(INFO)("using backend: %s", backendName(backend));

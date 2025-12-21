@@ -1,5 +1,5 @@
-#ifndef _ROP_PLATFORM_EPOLL_EVENTLOOP_BACKEND_H
-#define _ROP_PLATFORM_EPOLL_EVENTLOOP_BACKEND_H
+#ifndef _ROP_PLATFORM_LINUX_EPOLL_EVENTLOOP_BACKEND_H
+#define _ROP_PLATFORM_LINUX_EPOLL_EVENTLOOP_BACKEND_H
 
 #include <vector>
 #include <functional>
@@ -65,11 +65,11 @@ public:
     ~EpollEventLoopCore() override = default;
 };
 
-class EpollSocketEventSource final : public EpollEventSource {
+class EpollReadinessEventSource : public EpollEventSource {
 public:
     using Callback = std::function<void(uint32_t)>;
 
-    EpollSocketEventSource(int fd,
+    EpollReadinessEventSource(int fd,
                            uint32_t events,
                            Callback cb);
 
@@ -81,4 +81,4 @@ private:
 
 }
 
-#endif
+#endif // _ROP_PLATFORM_LINUX_EPOLL_EVENTLOOP_BACKEND_H

@@ -115,14 +115,14 @@ RawEventSpan EpollBackend::rawEvents() const {
 EpollEventLoopCore::EpollEventLoopCore()
     : IEventLoopCore(std::make_unique<EpollBackend>()) {}
 
-EpollSocketEventSource::EpollSocketEventSource(
+EpollReadinessEventSource::EpollReadinessEventSource(
     int fd,
     uint32_t events,
     Callback cb)
     : EpollEventSource(fd, events),
       callback_(std::move(cb)) {}
 
-void EpollSocketEventSource::dispatch(const void* raw_event) {
+void EpollReadinessEventSource::dispatch(const void* raw_event) {
     const auto* ev = asEpollEvent(raw_event);
     if (callback_) {
         callback_(ev->events);

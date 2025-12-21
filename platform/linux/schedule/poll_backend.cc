@@ -131,13 +131,13 @@ PollEventLoopCore::PollEventLoopCore()
 }
 
 
-PollSocketEventSource::PollSocketEventSource(int fd,
+PollReadinessEventSource::PollReadinessEventSource(int fd,
                                      short events,
                                      Callback cb)
     : PollEventSource(fd, events),
       callback_(std::move(cb)) {}
 
-void PollSocketEventSource::dispatch(const void* raw_event) {
+void PollReadinessEventSource::dispatch(const void* raw_event) {
     const PollRawEvent* ev = asPollEvent(raw_event);
 
     if (callback_) {

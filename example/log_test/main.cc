@@ -1,5 +1,7 @@
 #include <log.hpp>
 
+void more_test_code();
+
 int main() {
     logger::setMinLevel(LogLevel::DEBUG);
 
@@ -11,5 +13,11 @@ int main() {
     int value = 42;
     LOG(INFO)("The answer to life, the universe, and everything is %d", value);
 
+    more_test_code();
+
     return 0;
+}
+
+void more_test_code() {
+    LOG(INFO)("Logging from more_test_code function.");
 }

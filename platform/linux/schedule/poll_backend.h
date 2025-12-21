@@ -1,5 +1,5 @@
-#ifndef _ROP_PLATFORM_POLL_EVENTLOOP_BACKEND_H
-#define _ROP_PLATFORM_POLL_EVENTLOOP_BACKEND_H
+#ifndef _ROP_PLATFORM_LINUX_POLL_EVENTLOOP_BACKEND_H
+#define _ROP_PLATFORM_LINUX_POLL_EVENTLOOP_BACKEND_H
 
 #include <vector>
 #include <functional>
@@ -70,11 +70,11 @@ public:
 };
 
 
-class PollSocketEventSource final : public PollEventSource {
+class PollReadinessEventSource : public PollEventSource {
 public:
     using Callback = std::function<void(short revents)>;
 
-    PollSocketEventSource(int fd,
+    PollReadinessEventSource(int fd,
                       short events,
                       Callback cb);
 
@@ -86,4 +86,4 @@ private:
 
 }
 
-#endif // _ROP_PLATFORM_POLL_EVENTLOOP_BACKEND_H
+#endif // _ROP_PLATFORM_LINUX_POLL_EVENTLOOP_BACKEND_H
