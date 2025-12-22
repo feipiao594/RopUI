@@ -1,7 +1,8 @@
 # platform/CMakeLists.txt
 
 set(ROPUI_PLATFORM_SOURCES
-    eventloop_core.cc
+    schedule/eventloop_core.cc
+    schedule/eventloop.cc
 )
 
 if (UNIX AND NOT APPLE)
