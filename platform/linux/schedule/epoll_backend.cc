@@ -5,19 +5,28 @@
 #include <log.hpp>
 
 #include "epoll_backend.h"
+#include "schedule/eventloop_core.h"
 
 namespace RopEventloop::Linux {
 
 EpollEventSource::EpollEventSource(int fd, uint32_t events)
-    : fd_(fd), events_(events) {}
+    : IEventSource(BackendType::LINUX_EPOLL), fd_(fd), events_(events) {}
 
 void EpollEventSource::arm(IEventCoreBackend& backend) {
+    if(!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source arm to a dismatch backend");
+        return;
+    }
     if (armed_) return;
     static_cast<EpollBackend&>(backend).registerFd(fd_, events_);
     armed_ = true;
 }
 
 void EpollEventSource::disarm(IEventCoreBackend& backend) {
+    if(!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source disarm to a dismatch backend");
+        return;
+    }
     if (!armed_) return;
     static_cast<EpollBackend&>(backend).unregisterFd(fd_);
     armed_ = false;
@@ -34,7 +43,8 @@ EpollEventSource::asEpollEvent(const void* raw_event) const {
 }
 
 EpollBackend::EpollBackend(int vector_size)
-    : epfd_(::epoll_create1(EPOLL_CLOEXEC)),
+    : IEventCoreBackend(BackendType::LINUX_EPOLL), 
+      epfd_(::epoll_create1(EPOLL_CLOEXEC)),
       epoll_events_(vector_size) {}
 
 EpollBackend::~EpollBackend() {

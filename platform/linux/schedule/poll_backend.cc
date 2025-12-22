@@ -5,14 +5,19 @@
 #include <log.hpp>
 
 #include "poll_backend.h"
+#include "schedule/eventloop_core.h"
 
 
 namespace RopEventloop::Linux {
 
 PollEventSource::PollEventSource(int fd, short events)
-    : fd_(fd), events_(events) {}
+    : IEventSource(BackendType::LINUX_POLL), fd_(fd), events_(events) {}
 
 void PollEventSource::arm(IEventCoreBackend& backend) {
+    if(!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source arm to a dismatch backend");
+        return;
+    }
     if (armed_) {
         LOG(WARN)("try arm fd %d but it already armed", fd_);
         return;
@@ -24,6 +29,10 @@ void PollEventSource::arm(IEventCoreBackend& backend) {
 }
 
 void PollEventSource::disarm(IEventCoreBackend& backend) {
+    if(!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source disarm to a dismatch backend");
+        return;
+    }
     if (!armed_) {
         LOG(WARN)("try disarm fd %d but it not be armed", fd_);
         return;
@@ -44,7 +53,7 @@ PollEventSource::asPollEvent(const void* raw_event) const {
     return static_cast<const PollRawEvent*>(raw_event);
 }
 
-PollBackend::PollBackend() = default;
+PollBackend::PollBackend() : IEventCoreBackend(BackendType::LINUX_POLL) {};
 
 void PollBackend::addSource(IEventSource*) {
     // 幂等：PollBackend 不需要在这里做任何事

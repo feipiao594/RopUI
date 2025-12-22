@@ -17,15 +17,15 @@ using namespace RopEventloop;
 
 /* ================= Backend Selection ================= */
 
-enum class BackendType {
+enum class LocalBackendType {
     Poll,
     Epoll,
 };
 
-static const char* backendName(BackendType type) {
+static const char* backendName(LocalBackendType type) {
     switch (type) {
-    case BackendType::Poll:  return "poll";
-    case BackendType::Epoll: return "epoll";
+    case LocalBackendType::Poll:  return "poll";
+    case LocalBackendType::Epoll: return "epoll";
     default: return "unknown";
     }
 }
@@ -33,13 +33,13 @@ static const char* backendName(BackendType type) {
 /* ================= EventLoop Wrapper ================= */
 
 static std::unique_ptr<IEventLoopCore>
-createEventLoopCore(BackendType type) {
+createEventLoopCore(LocalBackendType type) {
     using namespace RopEventloop::Linux;
 
     switch (type) {
-    case BackendType::Poll:
+    case LocalBackendType::Poll:
         return std::make_unique<PollEventLoopCore>();
-    case BackendType::Epoll:
+    case LocalBackendType::Epoll:
         return std::make_unique<EpollEventLoopCore>();
     default:
         std::abort();
@@ -48,7 +48,7 @@ createEventLoopCore(BackendType type) {
 
 class EventLoop {
 public:
-    explicit EventLoop(BackendType type)
+    explicit EventLoop(LocalBackendType type)
         : core_(createEventLoopCore(type)) {}
 
     void run() {
@@ -92,7 +92,7 @@ static short epollToPoll(uint32_t events) {
 
 static std::unique_ptr<IEventSource>
 createSocketSource(
-    BackendType type,
+    LocalBackendType type,
     int fd,
     short interest,
     std::function<void(short)> user_cb) {
@@ -100,13 +100,13 @@ createSocketSource(
     using namespace RopEventloop::Linux;
 
     switch (type) {
-    case BackendType::Poll:
+    case LocalBackendType::Poll:
         return std::make_unique<PollReadinessEventSource>(
             fd,
             interest,
             std::move(user_cb));
 
-    case BackendType::Epoll:
+    case LocalBackendType::Epoll:
         return std::make_unique<EpollReadinessEventSource>(
             fd,
             /* epoll interest */ interest,
@@ -132,12 +132,12 @@ static void make_nonblocking(int fd) {
 /* ================= Test Program ================= */
 
 int main(int argc, char** argv) {
-    BackendType backend = BackendType::Epoll;
+    LocalBackendType backend = LocalBackendType::Epoll;
 
     if (argc > 1) {
         std::string arg = argv[1];
-        if (arg == "poll")  backend = BackendType::Poll;
-        if (arg == "epoll") backend = BackendType::Epoll;
+        if (arg == "poll")  backend = LocalBackendType::Poll;
+        if (arg == "epoll") backend = LocalBackendType::Epoll;
     } 
 
     logger::setMinLevel(LogLevel::INFO);

@@ -33,6 +33,10 @@ public:
     virtual void wait(int timeout) = 0;
 
     virtual RawEventSpan rawEvents() const = 0;
+
+    BackendType getType() {
+        return type_;
+    }
 };
 
 class IEventSource {
@@ -41,12 +45,16 @@ protected:
 public:
     IEventSource(BackendType type) : type_(type) {};
     virtual ~IEventSource() = default;
-
+    
     virtual void arm(IEventCoreBackend& backend) = 0;
     virtual void disarm(IEventCoreBackend& backend) = 0;
 
     virtual bool matches(const void* raw_event) const = 0;
     virtual void dispatch(const void* raw_event) = 0;
+
+    bool isSourceMatchBackend(IEventCoreBackend* backend) {
+        return type_ == backend->getType();
+    }
 };
 
 class IEventLoopCore {
