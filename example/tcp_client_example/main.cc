@@ -1,16 +1,14 @@
-#include "log.hpp"
-#include "platform/schedule/eventloop_core.h"
 #include <arpa/inet.h>
-#include <fcntl.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 #include <unistd.h>
-
 #include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
 
 #include <platform/schedule/eventloop.h>
+#include <log.hpp>
 
 using namespace RopEventloop;
 using namespace RopEventloop::Linux;
