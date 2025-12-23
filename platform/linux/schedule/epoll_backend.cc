@@ -51,14 +51,9 @@ EpollBackend::~EpollBackend() {
     ::close(epfd_);
 }
 
-void EpollBackend::addSource(IEventSource*) {
-    // 幂等：EpollBackend 不需要在这里做任何事
-    // source 的实际 fd 注册由 source->arm() 完成
-}
+void EpollBackend::addSource(IEventSource*) {}
 
-void EpollBackend::removeSource(IEventSource*) {
-    // 幂等：source->disarm() 应该已经清理了 fd
-}
+void EpollBackend::removeSource(IEventSource*) {}
 
 void EpollBackend::registerFd(int fd, uint32_t events) {
     auto it = fd_events_.find(fd);

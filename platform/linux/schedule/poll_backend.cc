@@ -55,20 +55,14 @@ PollEventSource::asPollEvent(const void* raw_event) const {
 
 PollBackend::PollBackend() : IEventCoreBackend(BackendType::LINUX_POLL) {};
 
-void PollBackend::addSource(IEventSource*) {
-    // 幂等：PollBackend 不需要在这里做任何事
-    // source 的实际 fd 注册由 source->arm() 完成
-}
+void PollBackend::addSource(IEventSource*) {}
 
-void PollBackend::removeSource(IEventSource*) {
-    // 幂等：source->disarm() 应该已经清理了 fd
-}
+void PollBackend::removeSource(IEventSource*) {}
 
 void PollBackend::registerFd(int fd, short events) {
     LOG(DEBUG)("registering fd %d with events 0x%04x", fd, events);
     auto it = fd_index_.find(fd);
     if (it != fd_index_.end()) {
-        // 已存在：更新监听事件
         pollfds_[it->second].events = events;
         return;
     }
@@ -85,7 +79,6 @@ void PollBackend::registerFd(int fd, short events) {
 void PollBackend::unregisterFd(int fd) {
     auto it = fd_index_.find(fd);
     if (it == fd_index_.end()) {
-        // 不存在：幂等 no-op
         LOG(WARN)("try unregister fd %d but it not registered", fd);
         return;
     }
@@ -118,10 +111,23 @@ void PollBackend::wait(int timeout) {
         return;
     }
 
+    int num_found = 0;
     for (const auto& pfd : pollfds_) {
         if (pfd.revents != 0) {
-            ready_events_.push_back(
-                PollRawEvent{pfd.fd, pfd.revents});
+            if (pfd.revents & POLLNVAL) {
+#ifdef ROPUI_DEBUG
+                LOG(ERROR)("POLLNVAL detected on fd %d", pfd.fd);
+                unregisterFd(pfd.fd); 
+#else
+                assert(!(pfd.revents & POLLNVAL));
+#endif    
+            }
+
+            ready_events_.push_back(PollRawEvent{pfd.fd, pfd.revents});
+            
+            if (++num_found >= ret) {
+                break;
+            }
         }
     }
 }
