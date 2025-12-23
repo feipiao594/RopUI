@@ -22,7 +22,7 @@
 namespace RopEventloop {
 
 #define DEFAULT_BACKENDTYPE BackendType::LINUX_EPOLL
-    
+
 static std::unique_ptr<RopEventloop::IEventLoopCore>
 createEventLoopCore(BackendType type) {
     using namespace RopEventloop::Linux;
@@ -34,6 +34,7 @@ createEventLoopCore(BackendType type) {
         return std::make_unique<EpollEventLoopCore>();
     default:
         std::abort();
+        // Only support Linux poll/epoll now
     }
 }
 
@@ -56,10 +57,9 @@ public:
     void post(Task task);
     void postDelayed(Task task, Duration delay);
 
+    void requestWakeUp();
     void requestExit();
     void run();
-
-    void tryWakeUp();
 
     bool exitRequested() const noexcept {
         return exit_requested_.load(std::memory_order_relaxed);

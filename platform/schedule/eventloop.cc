@@ -34,11 +34,8 @@ EventLoop::EventLoop(BackendType backend_type)
 }
 
 EventLoop::~EventLoop() {
-    requestExit();
-
-    // Stop internal wakeup watcher first (it detaches its source).
+    exit_requested_.store(true, std::memory_order_relaxed);
     wakeup_.reset();
-
     // core_ owns remaining sources; external watchers must be destroyed before EventLoop.
 }
 
@@ -137,7 +134,7 @@ int EventLoop::computeTimeoutMs() {
     return static_cast<int>(ms);
 }
 
-void EventLoop::tryWakeUp() {
+void EventLoop::requestWakeUp() {
     wakeup_->notify();
 }
 }
