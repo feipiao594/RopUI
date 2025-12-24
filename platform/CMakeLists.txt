@@ -80,6 +80,3 @@ target_link_libraries(ropui_platform
     PRIVATE
         ropui_log
 )
-
-get_target_property(_incs ropui_platform INCLUDE_DIRECTORIES)
-message(STATUS "ropui_platform includes: ${_incs}")
