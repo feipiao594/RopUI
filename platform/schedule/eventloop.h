@@ -2,9 +2,6 @@
 #define _ROP_PLATFORM_EVENTLOOP_H
 
 #include <cstdlib>
-#include <sys/eventfd.h>
-#include <unistd.h>
-
 #include <deque>
 #include <queue>
 #include <vector>
@@ -14,25 +11,46 @@
 #include <atomic>
 #include <mutex>
 
+#ifdef __linux__
+#include <sys/eventfd.h>
+#include <unistd.h>
+#endif
+
 #include "eventloop_core.h"
+#include "log.hpp"
+
+#ifdef __linux__
 #include "../linux/schedule/epoll_backend.h"
 #include "../linux/schedule/poll_backend.h"
+#define DEFAULT_BACKENDTYPE BackendType::LINUX_EPOLL
+#endif
 
+#ifdef __APPLE__
+    #include "../macos/schedule/poll_backend.h"
+    #define DEFAULT_BACKENDTYPE BackendType::MACOS_KQUEUE
+#endif
 
 namespace RopEventloop {
 
-#define DEFAULT_BACKENDTYPE BackendType::LINUX_EPOLL
-
 static std::unique_ptr<RopEventloop::IEventLoopCore>
 createEventLoopCore(BackendType type) {
-    using namespace RopEventloop::Linux;
+    using namespace RopEventloop;
 
     switch (type) {
+    #ifdef __linux__
     case BackendType::LINUX_POLL:
-        return std::make_unique<PollEventLoopCore>();
+        return std::make_unique<Linux::PollEventLoopCore>();
     case BackendType::LINUX_EPOLL:
-        return std::make_unique<EpollEventLoopCore>();
+        return std::make_unique<Linux::EpollEventLoopCore>();
+    #endif
+    #ifdef __APPLE__
+    case BackendType::MACOS_POLL:
+        return std::make_unique<MacOS::PollEventLoopCore>();
+    // case BackendType::MACOS_KQUEUE:
+    //     return std::make_unique<MacOS::KqueueEventLoopCore>();
+    #endif
     default:
+        LOG(FATAL)("Unsupported backend type, id: %d, maybe it not match your system", type);
         std::abort();
         // Only support Linux poll/epoll now
     }

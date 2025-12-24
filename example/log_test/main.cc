@@ -1,3 +1,5 @@
+#include "platform/schedule/eventloop_core.h"
+#include <chrono>
 #include <log.hpp>
 #include <platform/schedule/eventloop.h>
 
@@ -21,5 +23,22 @@ int main() {
 
 void more_test_code() {
     using namespace RopEventloop;
+
+    EventLoop loop(BackendType::MACOS_POLL);
+
+    loop.postDelayed([&](){
+        LOG(INFO)("This is an info message. 1");
+        loop.postDelayed([&](){
+            LOG(INFO)("This is an info message. 2");
+            loop.postDelayed([&](){
+                LOG(INFO)("This is an info message. 3");
+                loop.requestExit();
+            }, std::chrono::seconds(1));
+        }, std::chrono::seconds(1));
+    }, std::chrono::seconds(1));
+    
+    logger::setMinLevel(LogLevel::INFO);
+
+    loop.run();
     LOG(INFO)("Logging from more_test_code function.");
 }

@@ -9,7 +9,9 @@ namespace RopEventloop {
 
 enum class BackendType {
     LINUX_POLL,
-    LINUX_EPOLL
+    LINUX_EPOLL,
+    MACOS_POLL,
+    MACOS_KQUEUE
 };
 
 struct RawEventSpan {

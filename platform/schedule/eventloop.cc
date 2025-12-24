@@ -2,8 +2,15 @@
 #include <stdexcept>
 #include <utility>
 
+#ifdef __linux__
 #include "linux/schedule/watcher/epoll_wakeup.h"
 #include "linux/schedule/watcher/poll_wakeup.h"
+#endif
+
+#ifdef __APPLE__
+#include "macos/schedule/watcher/poll_wakeup.h"
+#endif
+
 #include "schedule/eventloop_core.h"
 
 
@@ -14,19 +21,26 @@ EventLoop::EventLoop(BackendType backend_type)
       core_(createEventLoopCore(backend_type)) {
 
     if (!core_) {
-        throw std::runtime_error("Linux::EventLoop: createEventLoopCore returned null");
+        throw std::runtime_error("EventLoop: createEventLoopCore returned null");
     }
 
     // Create wakeup watcher per backend type.
     switch (backend_type_) {
+#ifdef __linux__
     case BackendType::LINUX_EPOLL:
         wakeup_ = std::make_unique<Linux::EpollWakeUpWatcher>(*this);
         break;
     case BackendType::LINUX_POLL:
         wakeup_ = std::make_unique<Linux::PollWakeUpWatcher>(*this);
         break;
+#endif
+#ifdef __APPLE__ 
+    case BackendType::MACOS_POLL:
+        wakeup_ = std::make_unique<MacOS::PollWakeUpWatcher>(*this);
+        break;
+#endif
     default:
-        throw std::runtime_error("Linux::EventLoop: unknown backend");
+        throw std::runtime_error("EventLoop: unknown backend");
     }
 
     // Ensure all initial sources (including wakeup source) are registered before running.

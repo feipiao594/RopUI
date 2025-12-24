@@ -1,0 +1,9 @@
+set(ROPUI_PLATFORM_MACOS_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/poll_backend.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/poll_wakeup.cc
+)
+
+set(ROPUI_PLATFORM_MACOS_SOURCES
+    ${ROPUI_PLATFORM_MACOS_SOURCES}
+    PARENT_SCOPE
+)
