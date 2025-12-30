@@ -11,7 +11,6 @@ IEventLoopCore::IEventLoopCore(std::unique_ptr<IEventCoreBackend> backend)
 void IEventLoopCore::addSource(IEventSource* source) {
     LOG(DEBUG)("source add to core");
     std::lock_guard<std::mutex> lock(mu_);
-    sources_.push_back(source);
     pending_add_.push_back(source);
 }
 
@@ -73,6 +72,8 @@ void IEventLoopCore::applyPendingChanges() {
     for (IEventSource* src : pending_add) {
         backend_->addSource(src);
         src->arm(*backend_);
+        
+        sources_.push_back(src);
     }
 
     for (IEventSource* src : pending_remove) {

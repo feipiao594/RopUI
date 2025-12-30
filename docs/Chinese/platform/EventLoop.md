@@ -13,6 +13,7 @@ EventLoop 这一层是真正跑的循环，本质是把 IO 多路复用、任务
 
 ### EventLoop
 负责主循环与任务调度：
+EventLoop 持有一个 Backend，下面的函数实现都是围绕着 Backend 固定的几个方法来的
 
 - `post(Task task)`：投递即时任务，线程安全。
 - `postDelayed(Task task, Duration delay)`：投递延迟任务，线程安全。
