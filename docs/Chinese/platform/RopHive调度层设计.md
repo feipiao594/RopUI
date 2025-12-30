@@ -2,7 +2,7 @@
 
 在此之前设计 EventLoop 时，并没有非常深入的考虑跨平台的性质，但在看过 Windows 和 MacOS 之后，原本的 EventLoop 设计露出缺陷
 
-Windows 和 MacOS 的 UI 由于有内核的参与，他们暴露在外的接口大多是一些可以看作是同 Linux epoll/poll 等直接的 IO syscall 的封装，但是不能拆分的系统级 API，由于这个原因，所有对这个封装内可能存在的 IO syscall 的操作必须使用系统给予的 API，他们通常不能单独吧事件拆出来塞进一个真正的 IO syscall 里(比如 Windows 下的 IOCP，MasOS 下的 kqueue)。而他们本身给予的这个 API 有时也限制多多，比如 Windows，它的 `MsgWaitForMultipleObjectsEx` 这类接口限制了监听句柄的数量上限，仅仅只有 64 个，这意味着使用多线程去处理网络问题是必然的，然其实 UI 线程也能处理一些网络请求，单开一个线程专门处理网络有时候会造成一些浪费，因此我们需要一个多线程的调度器，要比 EventLoop 复杂的多
+Windows 和 MacOS 的 UI 由于有内核的参与，他们暴露在外的接口大多是一些可以看作是同 Linux epoll/poll 等直接的 IO syscall 的封装，但是不能拆分的系统级 API，由于这个原因，所有对这个封装内可能存在的 IO syscall 的操作必须使用系统给予的 API，他们通常不能单独吧事件拆出来塞进一个真正的 IO syscall 里(比如 Windows 下的 IOCP，MacOS 下的 kqueue)。而他们本身给予的这个 API 有时也限制多多，比如 Windows，它的 `MsgWaitForMultipleObjectsEx` 这类接口限制了监听句柄的数量上限，仅仅只有 64 个，这意味着使用多线程去处理网络问题是必然的，然其实 UI 线程也能处理一些网络请求，单开一个线程专门处理网络有时候会造成一些浪费，因此我们需要一个多线程的调度器，要比 EventLoop 复杂的多
 
 我把这个调度器称为 `RopHive` Rop 下的一个蜂巢，`RopHive` 旨在建立一个 **IO-Computing 混合驱动** 的多线程调度系统。它将系统级 UI 线程抽象为与其他 IO 相同的 syscall，通过分层队列管理，解决 UI 响应与重型计算的负载矛盾。
 
@@ -61,7 +61,11 @@ Worker 有一组 post 方法，首先，这里所调用的 post 方法是处理�
 
 关于定时 Task，worker 原则上推荐选择给自己，使用 postSelfDelayed ，但也可以选择递交给 RopHive，让它随机选个 worker 运行
 
-worker 内运行的 task 应该有办法获取自己在哪个 id 的 worker 下运行，这个 id 应该被存储在 hive 里，由它进行分配
+worker 内运行的 task 应该有办法获取自己在哪个 id 的 worker 下运行，这个 id 应该被存储在 hive 里，由它进行分配，这里直接采用递增的下标标记就好了
+
+worker 需要持有一个 wakeup 的 eventsource，注册这种东西的方式要像 EventLoop 的 Watcher 一样，这里称为 WorkerWatcher，任何一个 EventSource 都是平台相关，注册进对应 worker 里的 EventLoopCore 都需要像 EventLoop 一样，通过一个 enum 来判定注册的 Source 和平台是否相同，如果否则丢弃并 warning，debug 下可以直接断言
+
+worker 需要一个唤醒机制，通过持有 WakeupWorkerWatcher 实现。WakeupWorkerWatcher 是 WorkerWatcher 的一种具体实现，worker 直接拥有这个 watcher，同时其也可以引出一个 wakeup 方法，这个 wakeup 方法是唯一可以唤醒 worker 的方法，且线程安全
 
 ## 3. 蜂巢的节拍：Worker 运行逻辑
 
@@ -70,21 +74,25 @@ worker 内运行的 task 应该有办法获取自己在哪个 id 的 worker 下�
 1. **系统消息优先**：调用 `IEventLoopCore::runOnce(timeout)`。在 Windows 下，这对应 `PeekMessage`；在 Linux 下，这处理 FD 读写。接着需要调用 IEventLoopCore 处理原始回调的方法，这些回调里会具体的调用 worker 和 hive 的 post 语义分发 RopTask
 2. **定向收割 (Private)**：拿取并清空 `InboundBuffer`，将其合并到自己的 private_queue 里，以此处理来自其他线程的 `postPrivate` 指令(优先级最高，通常涉及状态机变更)和自己的产生的一些和自己强绑定的一些任务，
 3. **定时器触发 (Timer)**：处理到期的延迟任务。这和 EventLoop 的实现是一样的
-4. **本地消化 (Local DQueue Processing)** Worker 此时锁定的目标是自己的 local_dqueue。由于遵循 LIFO (后进先出) 逻辑，Worker 会尝试从队列的 Bottom 端进行 pop 操作。如果此时队列中有任务，Worker 会取出一个并执行。执行完毕后，它不会立刻向下走，而是会重新回到第 1 步(系统消息优先)，通过频繁检查系统 IO 和私有队列来维持高响应性。只有当 local_dqueue 彻底取空，即 bottom 追上 top 索引时，Worker 才会判定本地任务耗尽，进入第 5 步。
+4. **本地消化 (Local DQueue Processing)** Worker 此时锁定的目标是自己的 local_dqueue。由于遵循 LIFO (后进先出) 逻辑，Worker 会尝试从队列的 Bottom 端进行 pop 操作。如果此时队列中有任务，Worker 会取出至多 N(一个到时候会确定的数，是一个 DQueue 上限的分段函数，需要实际测试，这是一个系统的超参数) 个并执行。执行完毕后，它不会立刻向下走，而是会重新回到第 1 步(系统消息优先)，通过频繁检查系统 IO 和私有队列来维持高响应性。当 local_dqueue 彻底取空，即 bottom 追上 top 索引时，Worker 才会判定本地任务耗尽，进入第 5 步，另外在每 global_probe_interval(暂定为 47) 次没有进入到第 5 步的循环，则尝试进行第 5 步
 5. **全局支援 (Global Queue Harvesting)** Worker 判定自己已经完全处理完了“自留地”的任务，于是它向 RopHive 持有的 GlobalMicroTaskPool 发起请求。为了平衡吞吐量和锁开销，Worker 不会只拿一个任务，而是尝试一次性 Batch Pop(例如 16 个任务)。它会将这些任务从全局池中取出，并一次性填入自己的 local_dqueue 中。如果全局池有活，它领完活后会再次回到第 1 步开始循环(实际是跳过 6 并在 7 设置 timeout=0 / 让 wakeup 工作)。如果全局池也为空，则判定全站公共任务耗尽，进入第 6 步。
 6. **窃取 (Work Stealing)** 这是 Worker 最后的挣扎。它会利用 RopHive 维护的 Worker 列表，随机挑选一个邻居 Worker 作为“受害者”。它会窥探邻居的 local_dqueue，并尝试随机发起 CAS (Compare-And-Swap) 窃取。如果窃取成功，它会把拿到的任务(可能是一个或多个，取决于策略)转移到自己的队列中。如果随机挑了几个邻居都偷不到活(判定为全网空闲)，它才会无奈地进入第 7 步。
-7. **深度睡眠 (Deep Sleep & Wait)** 这是最后的兜底状态。Worker 会首先查询自己的 timer_heap，计算出距离最近一个定时器到期还有多少毫秒(记为 timeout)。如果堆里没活，timeout 就设为 -1。然后，它会调用 IEventLoopCore::runOnce(timeout) 真正进入内核态阻塞。此时，线程交出 CPU 控制权，直到以下三种情况之一发生：内核监测到注册的 FD 有事件、timeout 时间到期、或者其他线程通过 Waker(如 eventfd 或 PostThreadMessage)将其物理捅醒。一旦醒来，Worker 会立刻从第 1 步重新开始这一轮收割。
+7. **深度睡眠 (Deep Sleep & Wait)** 实际上第 7 步和第 1 步是同一个事情，都是新进的循环。在这里单独列出因为这是 4 5 6 7 的最后的兜底状态。Worker 会首先查询自己的 timer_heap，计算出距离最近一个定时器到期还有多少毫秒(记为 timeout)。如果堆里没活，timeout 就设为 -1。然后，它会回到第一步调用 IEventLoopCore::runOnce(timeout) 真正进入内核态阻塞。此时，线程交出 CPU 控制权，直到以下三种情况之一发生：内核监测到注册的 FD 有事件、timeout 时间到期、或者其他线程通过 Waker(如 eventfd 或 PostThreadMessage)将其物理捅醒。一旦醒来，Worker 会立刻从第 1 步重新开始这一轮收割。
 
-## 其他
-这边提到有如下一些 post
-|调用场景|任务类型|推荐方法|最终去向|窃取性|
-|:-:|:-:|:-:|:-:|:-:|
-|外部提交随机任务|不限|hive.post|全局池 (Global Pool)|可被领用|
-|外部提交定时任务|Micro|hive.postDelayed|某 Worker 的 timer_heap|禁用|
-|跨线程状态更新|不限|hive.postToWorker|目标 private_queue|禁用|
-|Worker 产生的子任务|Micro|postToLocal|local_dqueue (或溢出到 Global)|可被窃取|
-|Worker 内部回调|不限|postSelf|private_queue|禁用|
+## 4.其他
+这边提到有如下一些 post，注意下述不包括计算 worker
+|调用场景|任务类型|推荐方法|最终去向|窃取性|唤醒策略|
+|:-:|:-:|:-:|:-:|:-:|:-:|
+|外部提交随机任务|不限|hive.post|全局池 (Global Pool)|可被领用|只唤醒一个空闲 Worker|
+|外部提交定时任务|Micro|hive.postDelayed|某 Worker 的 timer_heap|禁用|立即 wakeup 目标 Worker|
+|跨线程状态更新|不限|hive.postToWorker|目标 private_queue|禁用|立即 wakeup 目标 Worker|
+|Worker 产生的子任务|Micro|worker.postToLocal|local_dqueue (或溢出到 Global)|可被窃取|仅当 worker 处于 sleep 状态时才需要唤醒|
+|Worker 内部回调|不限|worker.postSelf|private_queue|禁用|仅当 worker 处于 sleep 状态时才需要唤醒|
 
-其中 hive.post 这个操作在 worker 内调用时，需要 worker 内添加一个缓冲区，因为每次循环都会经过第 7 步，在第 7 步骤前，将 post 操作放进的缓冲区的全局任务全部通过 postBatch 方法递交给全局池，并清空缓冲区
+其中 hive.post 这个操作在 worker 内调用时，需要 worker 内添加一个缓冲区，因为每次循环都会经过第 7 步，在第 7 步骤前(也就是循环的最后)，将 post 操作放进的缓冲区的全局任务全部通过 postBatch 方法递交给全局池，并清空缓冲区
+
+关于这里只唤醒一个"空闲 Worker"的策略：令 hive 维护一个 sleeping_io_workers 位图/列表；若非空，任选其一唤醒；若空则不唤醒(说明已有 worker 在跑)。每个 worker 写自己的 sleep 标志，hive 读全部；标志用 atomic<bool> 保护
 
 其余方法由于比较灵活，可以不设置 postBatch 的方法，但填充 worker 的缓冲区所用到的代理 post 方法和在6 7之间的第6.5步，批上传操作需要完成，不必须，但能极大增加高负载情况下的处理速度，也可以设置一个开关控制当前 worker 是否需要这个优化
+
+关于具体多线程竞态等设计在设计具体类时决定
