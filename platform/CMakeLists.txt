@@ -84,3 +84,9 @@ target_link_libraries(ropui_platform
     PRIVATE
         ropui_log
 )
+
+target_compile_definitions(ropui_platform
+    PUBLIC
+        ROPUI_ENABLE_WINDOWS_BACKENDS=$<BOOL:${ROPUI_ENABLE_WINDOWS_BACKENDS}>
+        ROPUI_ENABLE_MACOS_BACKENDS=$<BOOL:${ROPUI_ENABLE_MACOS_BACKENDS}>
+)

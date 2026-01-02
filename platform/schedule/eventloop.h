@@ -27,7 +27,23 @@
 
 #ifdef __APPLE__
     #include "../macos/schedule/poll_backend.h"
-    #define DEFAULT_BACKENDTYPE BackendType::MACOS_KQUEUE
+    #if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
+        #include "../macos/schedule/kqueue_backend.h"
+        #include "../macos/schedule/cocoa_backend.h"
+        #define DEFAULT_BACKENDTYPE BackendType::MACOS_KQUEUE
+    #else
+        #define DEFAULT_BACKENDTYPE BackendType::MACOS_POLL
+    #endif
+#endif
+
+#ifdef _WIN32
+    #if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
+        #include "../windows/schedule/win32_backend.h"
+        #include "../windows/schedule/iocp_backend.h"
+        #define DEFAULT_BACKENDTYPE BackendType::WINDOWS_IOCP
+    #else
+        #define DEFAULT_BACKENDTYPE BackendType::WINDOWS_WIN32
+    #endif
 #endif
 
 namespace RopHive {
@@ -46,8 +62,20 @@ createEventLoopCore(BackendType type) {
     #ifdef __APPLE__
     case BackendType::MACOS_POLL:
         return std::make_unique<MacOS::PollEventLoopCore>();
-    // case BackendType::MACOS_KQUEUE:
-    //     return std::make_unique<MacOS::KqueueEventLoopCore>();
+    #if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
+    case BackendType::MACOS_KQUEUE:
+        return std::make_unique<MacOS::KqueueEventLoopCore>();
+    case BackendType::MACOS_COCOA:
+        return std::make_unique<MacOS::CocoaEventLoopCore>();
+    #endif
+    #endif
+    #ifdef _WIN32
+    #if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
+    case BackendType::WINDOWS_WIN32:
+        return std::make_unique<Windows::Win32EventLoopCore>();
+    case BackendType::WINDOWS_IOCP:
+        return std::make_unique<Windows::IocpEventLoopCore>();
+    #endif
     #endif
     default:
         LOG(FATAL)("Unsupported backend type, id: %d, maybe it not match your system", type);

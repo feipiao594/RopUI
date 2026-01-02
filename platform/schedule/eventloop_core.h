@@ -12,7 +12,10 @@ enum class BackendType {
     LINUX_POLL,
     LINUX_EPOLL,
     MACOS_POLL,
-    MACOS_KQUEUE
+    MACOS_KQUEUE,
+    MACOS_COCOA,
+    WINDOWS_WIN32,
+    WINDOWS_IOCP
 };
 
 struct RawEventSpan {

@@ -14,7 +14,36 @@
 #include "linux/schedule/watcher/poll_worker_wakeup.h"
 #endif
 
+#ifdef __APPLE__
+#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
+#include "macos/schedule/watcher/kqueue_worker_wakeup.h"
+#include "macos/schedule/watcher/cocoa_worker_wakeup.h"
+#endif
+#endif
+
+#ifdef _WIN32
+#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
+#include "windows/schedule/watcher/iocp_worker_wakeup.h"
+#include "windows/schedule/watcher/win32_worker_wakeup.h"
+#endif
+#endif
+
 namespace RopHive {
+
+static thread_local IOWorker* tls_worker = nullptr;
+static thread_local size_t tls_worker_id = 0;
+static thread_local bool tls_worker_valid = false;
+
+std::optional<size_t> IOWorker::currentWorkerId() noexcept {
+    if (!tls_worker_valid) {
+        return std::nullopt;
+    }
+    return tls_worker_id;
+}
+
+IOWorker* IOWorker::currentWorker() noexcept {
+    return tls_worker;
+}
 
 IOWorker::IOWorker()
     : options_(),
@@ -47,21 +76,46 @@ void IOWorker::bind(Hive& hive, size_t worker_id) {
         throw std::runtime_error("IOWorker: createEventLoopCore returned null");
     }
 
+    initialized_ = true;
+
 #ifdef __linux__
     if (options_.io_backend == BackendType::LINUX_EPOLL) {
         wakeup_ = std::make_unique<RopHive::Linux::EpollWorkerWakeUpWatcher>(*this);
-        wakeup_->start();
     } else if (options_.io_backend == BackendType::LINUX_POLL) {
         wakeup_ = std::make_unique<RopHive::Linux::PollWorkerWakeUpWatcher>(*this);
-        wakeup_->start();
     } else {
         throw std::runtime_error("IOWorker: unsupported linux backend");
     }
+#elif defined(__APPLE__)
+#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
+    if (options_.io_backend == BackendType::MACOS_KQUEUE) {
+        wakeup_ = std::make_unique<RopHive::MacOS::KqueueWorkerWakeUpWatcher>(*this);
+    } else if (options_.io_backend == BackendType::MACOS_COCOA) {
+        wakeup_ = std::make_unique<RopHive::MacOS::CocoaWorkerWakeUpWatcher>(*this);
+    } else if (options_.io_backend == BackendType::MACOS_POLL) {
+        // Existing poll backend uses the EventLoop watcher only; worker wakeup can be added later.
+        wakeup_.reset();
+    } else {
+        throw std::runtime_error("IOWorker: unsupported macos backend");
+    }
 #else
-    throw std::runtime_error("IOWorker: only linux backend supported for now");
+    throw std::runtime_error("IOWorker: macos backends are disabled (enable ROPUI_ENABLE_MACOS_BACKENDS)");
 #endif
-
-    initialized_ = true;
+#elif defined(_WIN32)
+#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
+    if (options_.io_backend == BackendType::WINDOWS_IOCP) {
+        wakeup_ = std::make_unique<RopHive::Windows::IocpWorkerWakeUpWatcher>(*this);
+    } else if (options_.io_backend == BackendType::WINDOWS_WIN32) {
+        wakeup_ = std::make_unique<RopHive::Windows::Win32WorkerWakeUpWatcher>(*this);
+    } else {
+        throw std::runtime_error("IOWorker: unsupported windows backend");
+    }
+#else
+    throw std::runtime_error("IOWorker: windows backends are disabled (enable ROPUI_ENABLE_WINDOWS_BACKENDS)");
+#endif
+#else
+    throw std::runtime_error("IOWorker: unsupported platform");
+#endif
 }
 
 void IOWorker::requestStop() {
@@ -307,6 +361,14 @@ void IOWorker::run() {
         throw std::runtime_error("IOWorker::run: worker not bound to a Hive");
     }
 
+    tls_worker = this;
+    tls_worker_id = worker_id_;
+    tls_worker_valid = true;
+
+    if (wakeup_) {
+        wakeup_->start();
+    }
+
     while (!stop_requested_.load(std::memory_order_acquire) && !hive_->getExitRequested()) {
         const int timeout_ms = computeNextTimeoutMs();
 
@@ -339,6 +401,10 @@ void IOWorker::run() {
             continue;
         }
     }
+
+    tls_worker_valid = false;
+    tls_worker_id = 0;
+    tls_worker = nullptr;
 }
 
 } // namespace RopHive

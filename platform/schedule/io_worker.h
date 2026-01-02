@@ -87,6 +87,9 @@ public:
     IOWorker(const IOWorker&) = delete;
     IOWorker& operator=(const IOWorker&) = delete;
 
+    static std::optional<size_t> currentWorkerId() noexcept;
+    static IOWorker* currentWorker() noexcept;
+
     size_t id() const noexcept { return worker_id_; }
 
     void bind(Hive& hive, size_t worker_id);
