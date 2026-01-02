@@ -1,9 +1,14 @@
 #include <glad/egl.h>
 #include <glad/gles2.h>
+#include <cstdint>
 #include <cstdio>
+#include <memory>
 #include "egl_backend.h"
 #include <log.hpp>
-#include <platform/schedule/eventloop.h>
+#include <platform/linux/schedule/epoll_backend.h>
+#include <platform/schedule/hive.h>
+#include <platform/schedule/io_worker.h>
+#include <platform/schedule/worker_watcher.h>
 
 #define NANOVG_GLES2_IMPLEMENTATION
 #include <nanovg.h>
@@ -47,14 +52,14 @@ static long long test_a = 1;
 static long long test_b = 1;
 static long long test_c = 1;
 
-class WaylandFrameWatcher final : public IWatcher {
+class WaylandFrameWatcher final : public IWorkerWatcher {
 public:
-    WaylandFrameWatcher(EventLoop& loop, WLContext& wl, EGLContextWl& egl, NVGcontext* vg)
-        : IWatcher(loop), wl_(wl), egl_(egl), vg_(vg) {}
+    WaylandFrameWatcher(IOWorker& worker, WLContext& wl, EGLContextWl& egl, NVGcontext* vg)
+        : IWorkerWatcher(worker), wl_(wl), egl_(egl), vg_(vg) {}
 
     void start() override {
         int fd = wl_display_get_fd(wl_.display);
-        source_ = std::make_unique<EpollReadinessEventSource>(fd, EPOLLIN, [this](short) {
+        source_ = std::make_unique<PollReadinessEventSource>(fd, POLLIN, [this](uint32_t) {
           LOG(INFO)("event get! %d", test_a++); 
           this->handleEvents();
         });
@@ -126,9 +131,14 @@ int main() {
     NVGcontext* vg = nvgCreateGLES2(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
     nvgCreateFont(vg, "sans", "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc");
 
-    EventLoop loop(BackendType::LINUX_EPOLL);
-    WaylandFrameWatcher watcher(loop, wl, egl, vg);
+    
+    Hive hive;
+    auto option = hive.options();
+    option.io_backend = BackendType::LINUX_POLL;
+    auto worker = std::make_shared<IOWorker>(option);
+    WaylandFrameWatcher watcher(*worker, wl, egl, vg);
+    hive.attachIOWorker(worker);
     watcher.start();
-    loop.run();
+    hive.run();
     return 0;
 }
