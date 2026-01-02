@@ -43,7 +43,15 @@ size_t TaskDeque::remainingSpace() const noexcept {
     return used >= max_sz ? 0 : (max_sz - used);
 }
 
-bool TaskDeque::tryPushBottom(std::function<void()> task) {
+bool TaskDeque::tryPushBottom(const std::function<void()>& task) {
+    if (!task) {
+        return true;
+    }
+    std::function<void()> copy = task;
+    return tryPushBottom(std::move(copy));
+}
+
+bool TaskDeque::tryPushBottom(std::function<void()>&& task) {
     if (!task) {
         return true;
     }

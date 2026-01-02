@@ -3,6 +3,10 @@
 set(ROPUI_PLATFORM_SOURCES
     schedule/eventloop_core.cc
     schedule/eventloop.cc
+    schedule/hive.cc
+    schedule/io_worker.cc
+    schedule/compute_worker.cc
+    schedule/worker_watcher.cc
 )
 
 if (UNIX AND NOT APPLE)

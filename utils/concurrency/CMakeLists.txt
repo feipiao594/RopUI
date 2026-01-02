@@ -1,5 +1,4 @@
 add_library(ropui_concurrency STATIC
-    thread_pool.cc
     task_deque.cc
 )
 

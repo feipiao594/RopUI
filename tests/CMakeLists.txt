@@ -12,20 +12,20 @@ target_link_libraries(task_deque_test
         ropui_concurrency
 )
 
-add_executable(thread_pool_test
-    thread_pool_test.cc
-)
-
-target_include_directories(thread_pool_test
-    PRIVATE
-        ${PROJECT_SOURCE_DIR}/utils
-)
-
-target_link_libraries(thread_pool_test
-    PRIVATE
-        ropui_concurrency
-)
-
 add_test(NAME task_deque_test COMMAND task_deque_test)
-add_test(NAME thread_pool_test COMMAND thread_pool_test)
 
+add_executable(hive_epoll_smoke_test
+    hive_epoll_smoke_test.cc
+)
+
+target_include_directories(hive_epoll_smoke_test
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}
+)
+
+target_link_libraries(hive_epoll_smoke_test
+    PRIVATE
+        ropui
+)
+
+add_test(NAME hive_epoll_smoke_test COMMAND hive_epoll_smoke_test)

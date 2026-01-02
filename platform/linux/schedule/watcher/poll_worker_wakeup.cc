@@ -1,4 +1,4 @@
-#include "poll_wakeup.h"
+#include "poll_worker_wakeup.h"
 
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -10,63 +10,54 @@
 
 namespace RopHive::Linux {
 
-
-PollWakeUpWatcher::PollWakeUpWatcher(EventLoop& loop)
-    : IWakeUpWatcher(loop) {
-
+PollWorkerWakeUpWatcher::PollWorkerWakeUpWatcher(IOWorker& worker)
+    : IWorkerWakeUpWatcher(worker) {
     wakeup_fd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (wakeup_fd_ < 0) {
         throw std::runtime_error(
             std::string("eventfd failed: ") + std::strerror(errno));
     }
-
     createSource();
 }
 
-PollWakeUpWatcher::~PollWakeUpWatcher() {
+PollWorkerWakeUpWatcher::~PollWorkerWakeUpWatcher() {
     stop();
-    // remove from watcher for memory safe
-
     if (wakeup_fd_ >= 0) {
         ::close(wakeup_fd_);
         wakeup_fd_ = -1;
     }
 }
 
-void PollWakeUpWatcher::start() {
-    if (attached_) return; // can only attach to one eventloop core
-
+void PollWorkerWakeUpWatcher::start() {
+    if (attached_) return;
     attachSource(source_.get());
     attached_ = true;
 }
 
-void PollWakeUpWatcher::stop() {
+void PollWorkerWakeUpWatcher::stop() {
     if (!attached_) return;
-
     detachSource(source_.get());
     attached_ = false;
 }
 
-void PollWakeUpWatcher::notify() {
+void PollWorkerWakeUpWatcher::notify() {
     if (wakeup_fd_ < 0) return;
-
     uint64_t one = 1;
-    ssize_t n = ::write(wakeup_fd_, &one, sizeof(one));
-    (void)n; // ignore EAGAIN
+    const ssize_t n = ::write(wakeup_fd_, &one, sizeof(one));
+    (void)n;
 }
 
-void PollWakeUpWatcher::createSource() {
+void PollWorkerWakeUpWatcher::createSource() {
     source_ = std::make_unique<PollReadinessEventSource>(
         wakeup_fd_,
         POLLIN,
         [this](uint32_t events) {
             if (!(events & POLLIN)) return;
-
             uint64_t value = 0;
             while (::read(wakeup_fd_, &value, sizeof(value)) > 0) {
-                // drain
             }
         });
 }
 
-}
+} // namespace RopHive::Linux
+

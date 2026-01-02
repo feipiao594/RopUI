@@ -1,4 +1,4 @@
-#include "poll_wakeup.h"
+#include "epoll_worker_wakeup.h"
 
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -6,67 +6,58 @@
 #include <cstring>
 #include <stdexcept>
 
-#include "../poll_backend.h"
+#include "../epoll_backend.h"
 
 namespace RopHive::Linux {
 
-
-PollWakeUpWatcher::PollWakeUpWatcher(EventLoop& loop)
-    : IWakeUpWatcher(loop) {
-
+EpollWorkerWakeUpWatcher::EpollWorkerWakeUpWatcher(IOWorker& worker)
+    : IWorkerWakeUpWatcher(worker) {
     wakeup_fd_ = ::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
     if (wakeup_fd_ < 0) {
         throw std::runtime_error(
             std::string("eventfd failed: ") + std::strerror(errno));
     }
-
     createSource();
 }
 
-PollWakeUpWatcher::~PollWakeUpWatcher() {
+EpollWorkerWakeUpWatcher::~EpollWorkerWakeUpWatcher() {
     stop();
-    // remove from watcher for memory safe
-
     if (wakeup_fd_ >= 0) {
         ::close(wakeup_fd_);
         wakeup_fd_ = -1;
     }
 }
 
-void PollWakeUpWatcher::start() {
-    if (attached_) return; // can only attach to one eventloop core
-
+void EpollWorkerWakeUpWatcher::start() {
+    if (attached_) return;
     attachSource(source_.get());
     attached_ = true;
 }
 
-void PollWakeUpWatcher::stop() {
+void EpollWorkerWakeUpWatcher::stop() {
     if (!attached_) return;
-
     detachSource(source_.get());
     attached_ = false;
 }
 
-void PollWakeUpWatcher::notify() {
+void EpollWorkerWakeUpWatcher::notify() {
     if (wakeup_fd_ < 0) return;
-
     uint64_t one = 1;
-    ssize_t n = ::write(wakeup_fd_, &one, sizeof(one));
-    (void)n; // ignore EAGAIN
+    const ssize_t n = ::write(wakeup_fd_, &one, sizeof(one));
+    (void)n;
 }
 
-void PollWakeUpWatcher::createSource() {
-    source_ = std::make_unique<PollReadinessEventSource>(
+void EpollWorkerWakeUpWatcher::createSource() {
+    source_ = std::make_unique<EpollReadinessEventSource>(
         wakeup_fd_,
-        POLLIN,
+        EPOLLIN,
         [this](uint32_t events) {
-            if (!(events & POLLIN)) return;
-
+            if (!(events & EPOLLIN)) return;
             uint64_t value = 0;
             while (::read(wakeup_fd_, &value, sizeof(value)) > 0) {
-                // drain
             }
         });
 }
 
-}
+} // namespace RopHive::Linux
+

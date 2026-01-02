@@ -1,5 +1,5 @@
-#ifndef _ROPUI_UTILS_CONCURRENCY_TASKDEQUE
-#define _ROPUI_UTILS_CONCURRENCY_TASKDEQUE
+#ifndef _ROPUI_UTILS_CONCURRENCY_TASKDEQUE_H
+#define _ROPUI_UTILS_CONCURRENCY_TASKDEQUE_H
 
 #include <atomic>
 #include <cstddef>
@@ -21,7 +21,8 @@ public:
     size_t approxSize() const noexcept;
     size_t remainingSpace() const noexcept;
 
-    bool tryPushBottom(std::function<void()> task);
+    bool tryPushBottom(const std::function<void()>& task);
+    bool tryPushBottom(std::function<void()>&& task);
     std::optional<std::function<void()>> tryPopBottom();
     std::optional<std::function<void()>> tryStealTop();
 
@@ -38,4 +39,4 @@ private:
 
 } 
 
-#endif // _ROPUI_UTILS_CONCURRENCY_TASKDEQUE
+#endif // _ROPUI_UTILS_CONCURRENCY_TASKDEQUE_H
