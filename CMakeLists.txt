@@ -8,7 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(EXPORT_COMPILE_COMMANDS ON)
 
 option(ROPUI_BUILD_WAYLAND "Build wayland" OFF)
-option(ROPUI_BUILD_EXAMPLES "Build examples" ON)
+option(ROPUI_BUILD_EXAMPLES "Build examples" OFF)
+option(ROPUI_BUILD_TESTS "Build tests" OFF)
 
 add_subdirectory(deps)
 # add_subdirectory(graphic)
@@ -35,8 +36,14 @@ target_include_directories(ropui
 target_link_libraries(ropui
     PUBLIC
         ropui_log
+        ropui_concurrency
 )
 
 if(ROPUI_BUILD_EXAMPLES)
 add_subdirectory(example)
+endif()
+
+if(ROPUI_BUILD_TESTS)
+enable_testing()
+add_subdirectory(tests)
 endif()
