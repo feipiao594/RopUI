@@ -4,9 +4,7 @@
 #ifdef _WIN32
 
 #include "../../../schedule/worker_watcher.h"
-
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include "../../win32_wrapper.h"
 
 namespace RopHive::Windows {
 

@@ -7,8 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include "../win32_wrapper.h"
 
 #include "../../schedule/eventloop_core.h"
 

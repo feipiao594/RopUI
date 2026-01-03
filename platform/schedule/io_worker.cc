@@ -15,17 +15,13 @@
 #endif
 
 #ifdef __APPLE__
-#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
 #include "macos/schedule/watcher/kqueue_worker_wakeup.h"
 #include "macos/schedule/watcher/cocoa_worker_wakeup.h"
 #endif
-#endif
 
 #ifdef _WIN32
-#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
 #include "windows/schedule/watcher/iocp_worker_wakeup.h"
 #include "windows/schedule/watcher/win32_worker_wakeup.h"
-#endif
 #endif
 
 namespace RopHive {
@@ -87,7 +83,6 @@ void IOWorker::bind(Hive& hive, size_t worker_id) {
         throw std::runtime_error("IOWorker: unsupported linux backend");
     }
 #elif defined(__APPLE__)
-#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
     if (options_.io_backend == BackendType::MACOS_KQUEUE) {
         wakeup_ = std::make_unique<RopHive::MacOS::KqueueWorkerWakeUpWatcher>(*this);
     } else if (options_.io_backend == BackendType::MACOS_COCOA) {
@@ -98,11 +93,7 @@ void IOWorker::bind(Hive& hive, size_t worker_id) {
     } else {
         throw std::runtime_error("IOWorker: unsupported macos backend");
     }
-#else
-    throw std::runtime_error("IOWorker: macos backends are disabled (enable ROPUI_ENABLE_MACOS_BACKENDS)");
-#endif
 #elif defined(_WIN32)
-#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
     if (options_.io_backend == BackendType::WINDOWS_IOCP) {
         wakeup_ = std::make_unique<RopHive::Windows::IocpWorkerWakeUpWatcher>(*this);
     } else if (options_.io_backend == BackendType::WINDOWS_WIN32) {
@@ -110,9 +101,6 @@ void IOWorker::bind(Hive& hive, size_t worker_id) {
     } else {
         throw std::runtime_error("IOWorker: unsupported windows backend");
     }
-#else
-    throw std::runtime_error("IOWorker: windows backends are disabled (enable ROPUI_ENABLE_WINDOWS_BACKENDS)");
-#endif
 #else
     throw std::runtime_error("IOWorker: unsupported platform");
 #endif

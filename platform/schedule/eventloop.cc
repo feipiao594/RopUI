@@ -9,17 +9,13 @@
 
 #ifdef __APPLE__
 #include "macos/schedule/watcher/poll_wakeup.h"
-#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
 #include "macos/schedule/watcher/kqueue_wakeup.h"
 #include "macos/schedule/watcher/cocoa_wakeup.h"
 #endif
-#endif
 
 #ifdef _WIN32
-#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
 #include "windows/schedule/watcher/win32_wakeup.h"
 #include "windows/schedule/watcher/iocp_wakeup.h"
-#endif
 #endif
 
 #include "schedule/eventloop_core.h"
@@ -49,7 +45,6 @@ EventLoop::EventLoop(BackendType backend_type)
     case BackendType::MACOS_POLL:
         wakeup_ = std::make_unique<MacOS::PollWakeUpWatcher>(*this);
         break;
-#if defined(ROPUI_ENABLE_MACOS_BACKENDS) && ROPUI_ENABLE_MACOS_BACKENDS
     case BackendType::MACOS_KQUEUE:
         wakeup_ = std::make_unique<MacOS::KqueueWakeUpWatcher>(*this);
         break;
@@ -57,16 +52,13 @@ EventLoop::EventLoop(BackendType backend_type)
         wakeup_ = std::make_unique<MacOS::CocoaWakeUpWatcher>(*this);
         break;
 #endif
-#endif
 #ifdef _WIN32
-#if defined(ROPUI_ENABLE_WINDOWS_BACKENDS) && ROPUI_ENABLE_WINDOWS_BACKENDS
     case BackendType::WINDOWS_WIN32:
         wakeup_ = std::make_unique<Windows::Win32WakeUpWatcher>(*this);
         break;
     case BackendType::WINDOWS_IOCP:
         wakeup_ = std::make_unique<Windows::IocpWakeUpWatcher>(*this);
         break;
-#endif
 #endif
     default:
         throw std::runtime_error("EventLoop: unknown backend");
