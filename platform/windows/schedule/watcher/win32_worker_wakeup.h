@@ -17,8 +17,6 @@ public:
     void stop() override;
     void notify() override;
 
-    void setThreadId(DWORD tid) noexcept { thread_id_ = tid; }
-
 private:
     DWORD thread_id_{0};
     bool attached_{false};

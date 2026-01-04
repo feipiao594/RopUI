@@ -12,10 +12,12 @@ static constexpr UINT kWakeMsg = WM_USER + 100;
 Win32WakeUpWatcher::Win32WakeUpWatcher(EventLoop& loop)
     : IWakeUpWatcher(loop) {
     (void)loop;
-    thread_id_ = ::GetCurrentThreadId();
 }
 
-void Win32WakeUpWatcher::start() { attached_ = true; }
+void Win32WakeUpWatcher::start() {
+    thread_id_ = ::GetCurrentThreadId();
+    attached_ = true;
+}
 void Win32WakeUpWatcher::stop() { attached_ = false; }
 
 void Win32WakeUpWatcher::notify() {

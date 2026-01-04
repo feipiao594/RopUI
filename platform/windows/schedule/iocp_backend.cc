@@ -6,14 +6,23 @@
 
 namespace RopHive::Windows {
 
-IocpEventSource::IocpEventSource(ULONG_PTR key)
-    : IEventSource(BackendType::WINDOWS_IOCP), key_(key) {}
+IocpEventSource::IocpEventSource(ULONG_PTR key, HANDLE handle)
+    : IEventSource(BackendType::WINDOWS_IOCP),
+      key_(key),
+      handle_(handle) {}
 
 void IocpEventSource::arm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
+        armed_ = false;
+        backend_ = nullptr;
         return;
     }
     armed_ = true;
+    backend_ = static_cast<IocpBackend*>(&backend);
+
+    if (handle_ != nullptr) {
+        backend_->associateHandle(handle_, key());
+    }
 }
 
 void IocpEventSource::disarm(IEventCoreBackend& backend) {
@@ -21,6 +30,8 @@ void IocpEventSource::disarm(IEventCoreBackend& backend) {
         return;
     }
     armed_ = false;
+    backend_ = nullptr;
+    (void)backend;
 }
 
 bool IocpEventSource::matches(const void* raw_event) const {
@@ -49,8 +60,17 @@ IocpBackend::~IocpBackend() {
 void IocpBackend::addSource(IEventSource*) {}
 void IocpBackend::removeSource(IEventSource*) {}
 
-void IocpBackend::postWake(ULONG_PTR key) {
-    ::PostQueuedCompletionStatus(port_, 0, key, nullptr);
+bool IocpBackend::associateHandle(HANDLE handle, ULONG_PTR key) {
+    if (!port_ || handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    HANDLE r = ::CreateIoCompletionPort(handle, port_, key, 0);
+    return r == port_;
+}
+
+void IocpBackend::postCompletion(ULONG_PTR key, DWORD bytes, OVERLAPPED* overlapped) {
+    if (!port_) return;
+    ::PostQueuedCompletionStatus(port_, bytes, key, overlapped);
 }
 
 void IocpBackend::wait(int timeout) {
@@ -98,11 +118,11 @@ RawEventSpan IocpBackend::rawEvents() const {
 IocpEventLoopCore::IocpEventLoopCore()
     : IEventLoopCore(std::make_unique<IocpBackend>()) {}
 
-IocpCompletionEventSource::IocpCompletionEventSource(ULONG_PTR key, Callback cb)
-    : IocpEventSource(key),
+IocpHandleCompletionEventSource::IocpHandleCompletionEventSource(HANDLE handle, ULONG_PTR key, Callback cb)
+    : IocpEventSource(key, handle),
       cb_(std::move(cb)) {}
 
-void IocpCompletionEventSource::dispatch(const void* raw_event) {
+void IocpHandleCompletionEventSource::dispatch(const void* raw_event) {
     if (!cb_) return;
     cb_(*asIocpEvent(raw_event));
 }
@@ -110,28 +130,14 @@ void IocpCompletionEventSource::dispatch(const void* raw_event) {
 IocpWakeUpEventSource::IocpWakeUpEventSource(ULONG_PTR key)
     : IocpEventSource(key) {}
 
-void IocpWakeUpEventSource::arm(IEventCoreBackend& backend) {
-    IocpEventSource::arm(backend);
-    if (!isSourceMatchBackend(&backend)) {
-        backend_ = nullptr;
-        return;
-    }
-    backend_ = static_cast<IocpBackend*>(&backend);
-}
-
-void IocpWakeUpEventSource::disarm(IEventCoreBackend& backend) {
-    IocpEventSource::disarm(backend);
-    (void)backend;
-    backend_ = nullptr;
-}
-
 void IocpWakeUpEventSource::dispatch(const void* raw_event) {
     (void)raw_event;
 }
 
 void IocpWakeUpEventSource::notify() {
-    if (!backend_) return;
-    backend_->postWake(key());
+    auto* b = backend();
+    if (!b) return;
+    b->postWake(key());
 }
 
 } // namespace RopHive::Windows

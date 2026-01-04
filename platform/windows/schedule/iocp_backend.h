@@ -20,9 +20,11 @@ struct IocpRawEvent {
     DWORD error;
 };
 
+class IocpBackend;
+
 class IocpEventSource : public IEventSource {
 public:
-    explicit IocpEventSource(ULONG_PTR key);
+    explicit IocpEventSource(ULONG_PTR key, HANDLE handle = nullptr);
     ~IocpEventSource() override = default;
 
     void arm(IEventCoreBackend& backend) override;
@@ -32,9 +34,12 @@ public:
 protected:
     const IocpRawEvent* asIocpEvent(const void* raw_event) const;
     ULONG_PTR key() const { return key_; }
+    IocpBackend* backend() const noexcept { return backend_; }
 
 private:
     ULONG_PTR key_;
+    HANDLE handle_{nullptr};
+    IocpBackend* backend_{nullptr};
     bool armed_ = false;
 };
 
@@ -50,7 +55,16 @@ public:
     RawEventSpan rawEvents() const override;
 
     HANDLE port() const noexcept { return port_; }
-    void postWake(ULONG_PTR key);
+
+    // Associates a HANDLE with this IOCP and assigns it a completion key.
+    // For sockets, pass the SOCKET cast to HANDLE.
+    bool associateHandle(HANDLE handle, ULONG_PTR key);
+
+    // Posts a completion packet into the IOCP queue (used by wakeup and testing).
+    void postCompletion(ULONG_PTR key, DWORD bytes, OVERLAPPED* overlapped);
+
+    // Convenience for "poke/wakeup" packets.
+    void postWake(ULONG_PTR key) { postCompletion(key, 0, nullptr); }
 
 private:
     HANDLE port_{nullptr};
@@ -64,16 +78,18 @@ public:
     ~IocpEventLoopCore() override = default;
 };
 
-class IocpCompletionEventSource final : public IocpEventSource {
+
+// A convenience source that also associates a HANDLE to the IOCP on arm().
+// This is the typical "attach" point for file/socket handles in an IOCP backend.
+class IocpHandleCompletionEventSource final : public IocpEventSource {
 public:
     using Callback = std::function<void(const IocpRawEvent&)>;
 
-    IocpCompletionEventSource(ULONG_PTR key, Callback cb);
+    IocpHandleCompletionEventSource(HANDLE handle, ULONG_PTR key, Callback cb);
     void dispatch(const void* raw_event) override;
 
 private:
     Callback cb_;
-    IocpBackend* backend_{nullptr};
 };
 
 // Special source used by wakeup watchers: it knows how to post to the same IOCP.
@@ -82,12 +98,6 @@ public:
     explicit IocpWakeUpEventSource(ULONG_PTR key);
     void dispatch(const void* raw_event) override;
     void notify();
-
-    void arm(IEventCoreBackend& backend) override;
-    void disarm(IEventCoreBackend& backend) override;
-
-private:
-    IocpBackend* backend_{nullptr};
 };
 
 } // namespace RopHive::Windows
@@ -95,4 +105,3 @@ private:
 #endif // _WIN32
 
 #endif // _ROP_PLATFORM_WINDOWS_IOCP_EVENTLOOP_BACKEND_H
-
