@@ -1,214 +1,230 @@
 #ifdef _WIN32
+
 #include <log.hpp>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <mswsock.h>
 #include <windows.h>
 #include <string>
 #include <memory>
-#include <map>
 #include <vector>
 
-#pragma comment(lib, "ws2_32.lib")
 #include <platform/schedule/eventloop.h>
-#include <platform/windows/schedule/iocp_backend.h>
+#include <platform/windows/schedule/win32_backend.h>
 
 using namespace RopHive;
 using namespace RopHive::Windows;
 
-struct IoContext {
-    OVERLAPPED overlapped;
-    enum { RECV, SEND, ACCEPT } type;
-    char buffer[4096];
-    WSABUF wsabuf;
-    SOCKET accept_socket;
+// 全局窗口类名
+static const wchar_t* WINDOW_CLASS_NAME = L"RopUI_Win32_Example";
+static HWND g_hwnd = nullptr;
 
-    IoContext() : accept_socket(INVALID_SOCKET) {
-        memset(&overlapped, 0, sizeof(overlapped));
-        wsabuf.buf = buffer;
-        wsabuf.len = sizeof(buffer);
+// 窗口过程
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    switch (msg) {
+    case WM_CLOSE:
+        ::DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        ::PostQuitMessage(0);
+        return 0;
+    default:
+        return ::DefWindowProc(hwnd, msg, wparam, lparam);
     }
-};
+}
 
-struct ClientContext {
-    SOCKET socket;
-    int client_id;
-    ClientContext(SOCKET s, int id) : socket(s), client_id(id) {}
-    ~ClientContext() { if (socket != INVALID_SOCKET) closesocket(socket); }
-};
+// 创建窗口
+bool createWindow(const wchar_t* title, int width, int height) {
+    HINSTANCE hInstance = ::GetModuleHandle(nullptr);
 
-class TcpServer : public IWatcher {
+    // 注册窗口类
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = WINDOW_CLASS_NAME;
+
+    if (!::RegisterClassExW(&wc)) {
+        LOG(FATAL)("Failed to register window class");
+        return false;
+    }
+
+    // 创建窗口
+    g_hwnd = ::CreateWindowExW(
+        0,
+        WINDOW_CLASS_NAME,
+        title,
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        width, height,
+        nullptr,
+        nullptr,
+        hInstance,
+        nullptr);
+
+    if (!g_hwnd) {
+        LOG(FATAL)("Failed to create window");
+        return false;
+    }
+
+    ::ShowWindow(g_hwnd, SW_SHOW);
+    ::UpdateWindow(g_hwnd);
+
+    LOG(INFO)("Window created successfully");
+    return true;
+}
+
+// 窗口事件监听Watcher
+class WindowWatcher : public IWatcher {
 public:
-    explicit TcpServer(EventLoop& loop, int port)
-        : IWatcher(loop), port_(port), listen_socket_(INVALID_SOCKET) {}
-
-    // 确保析构时彻底清理
-    ~TcpServer() { stop(); }
+    explicit WindowWatcher(EventLoop& loop) : IWatcher(loop) {}
+    ~WindowWatcher() override = default;
 
     void start() override {
-        WSADATA wsa; WSAStartup(MAKEWORD(2, 2), &wsa);
-        listen_socket_ = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
-        
-        int opt = 1;
-        setsockopt(listen_socket_, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+        // 监听WM_PAINT消息
+        paint_source_ = std::make_shared<Win32MessageEventSource>(
+            WM_PAINT,
+            [](const Win32RawEvent& ev) {
+                LOG(INFO)("Received WM_PAINT message");
+                PAINTSTRUCT ps;
+                HDC hdc = ::BeginPaint(g_hwnd, &ps);
+                
+                // 绘制一些文本
+                const wchar_t* text = L"Hello from RopUI EventLoop!";
+                ::SetBkMode(hdc, TRANSPARENT);
+                ::SetTextColor(hdc, RGB(0, 0, 128));
+                
+                RECT rc;
+                ::GetClientRect(g_hwnd, &rc);
+                ::DrawTextW(hdc, text, -1, &rc, 
+                           DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                
+                ::EndPaint(g_hwnd, &ps);
+            });
 
-        sockaddr_in addr = { AF_INET, htons(port_), { INADDR_ANY } };
-        bind(listen_socket_, (sockaddr*)&addr, sizeof(addr));
-        listen(listen_socket_, SOMAXCONN);
+        // 监听WM_LBUTTONDOWN消息（鼠标左键点击）
+        click_source_ = std::make_shared<Win32MessageEventSource>(
+            WM_LBUTTONDOWN,
+            [](const Win32RawEvent& ev) {
+                int x = LOWORD(ev.lparam);
+                int y = HIWORD(ev.lparam);
+                LOG(INFO)("Mouse clicked at (%d, %d)", x, y);
+                
+                // 弹出消息框
+                ::MessageBoxW(g_hwnd, 
+                             L"You clicked the window!\nClick OK to continue.",
+                             L"RopUI EventLoop", 
+                             MB_OK | MB_ICONINFORMATION);
+            });
 
-        GUID guidAcceptEx = WSAID_ACCEPTEX;
-        DWORD bytes;
-        WSAIoctl(listen_socket_, SIO_GET_EXTENSION_FUNCTION_POINTER, &guidAcceptEx, sizeof(guidAcceptEx),
-                 &lpfnAcceptEx_, sizeof(lpfnAcceptEx_), &bytes, nullptr, nullptr);
+        // 监听WM_KEYDOWN消息（键盘按键）
+        key_source_ = std::make_shared<Win32MessageEventSource>(
+            WM_KEYDOWN,
+            [](const Win32RawEvent& ev) {
+                LOG(INFO)("Key pressed: virtual key code = 0x%X", ev.wparam);
+                
+                // 如果按下ESC键，显示提示
+                if (ev.wparam == VK_ESCAPE) {
+                    ::MessageBoxW(g_hwnd, 
+                                 L"ESC pressed!\nClose the window to exit.",
+                                 L"RopUI EventLoop", 
+                                 MB_OK | MB_ICONINFORMATION);
+                }
+            });
 
-        accept_source_ = std::make_unique<IocpHandleCompletionEventSource>(
-            (HANDLE)listen_socket_, reinterpret_cast<ULONG_PTR>(this),
-            [this](const IocpRawEvent& ev) { handleAcceptEvent(ev); });
-        attachSource(accept_source_.get());
+        // 监听WM_QUIT消息（退出程序）
+        quit_source_ = std::make_shared<Win32MessageEventSource>(
+            WM_QUIT,
+            [this](const Win32RawEvent& ev) {
+                LOG(INFO)("Received WM_QUIT, exit code: %d", ev.wparam);
+                loop_.requestExit();
+            });
 
-        postNewAccept();
-        LOG(INFO)("Server started on port %d", port_);
+        // 注册所有事件源
+        attachSource(paint_source_);
+        attachSource(click_source_);
+        attachSource(key_source_);
+        attachSource(quit_source_);
     }
 
-    // 完整的清理逻辑
     void stop() override {
-        // 1. 停止监听
-        if (accept_source_) {
-            detachSource(accept_source_.get());
-            accept_source_.reset();
-        }
-        if (listen_socket_ != INVALID_SOCKET) {
-            closesocket(listen_socket_);
-            listen_socket_ = INVALID_SOCKET;
-        }
-
-        // 2. 清理所有客户端连接及其关联的 Source
-        // 先 detach 调度器中的 Source，再释放 client 内存
-        for (auto& pair : client_sources_) {
-            detachSource(pair.second.get());
-        }
-        client_sources_.clear();
-        clients_map_.clear();
-
-        WSACleanup();
-        LOG(INFO)("Server stopped and cleaned up.");
+        // 卸载所有事件源
+        if (paint_source_) detachSource(paint_source_);
+        if (click_source_) detachSource(click_source_);
+        if (key_source_) detachSource(key_source_);
+        if (quit_source_) detachSource(quit_source_);
     }
 
 private:
-    void postNewAccept() {
-        SOCKET s = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
-        auto* io = new IoContext();
-        io->type = IoContext::ACCEPT;
-        io->accept_socket = s;
-
-        DWORD recvd = 0;
-        int addr_len = sizeof(sockaddr_in) + 16;
-        // 关键：不读取首包数据(长度0)，彻底规避不sleep时的同步时序问题
-        BOOL res = lpfnAcceptEx_(listen_socket_, s, io->buffer, 0, 
-                                 addr_len, addr_len, &recvd, &io->overlapped);
-        
-        if (!res && WSAGetLastError() != ERROR_IO_PENDING) {
-            closesocket(s);
-            delete io;
-        }
-    }
-
-    void handleAcceptEvent(const IocpRawEvent& ev) {
-        auto* accept_io = CONTAINING_RECORD(ev.overlapped, IoContext, overlapped);
-        SOCKET client_sock = accept_io->accept_socket;
-        delete accept_io;
-
-        if (ev.error != 0) {
-            if (client_sock != INVALID_SOCKET) closesocket(client_sock);
-            postNewAccept();
-            return;
-        }
-
-        postNewAccept();
-        setsockopt(client_sock, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&listen_socket_, sizeof(listen_socket_));
-
-        auto client = std::make_shared<ClientContext>(client_sock, next_id_++);
-        clients_map_[client.get()] = client;
-
-        auto source = std::make_unique<IocpHandleCompletionEventSource>(
-            (HANDLE)client->socket, reinterpret_cast<ULONG_PTR>(client.get()),
-            [this, client](const IocpRawEvent& e) { handleClientEvent(client, e); });
-        
-        auto* source_ptr = source.get();
-        client_sources_[client.get()] = std::move(source);
-        attachSource(source_ptr);
-
-        // 既然不 sleep 会卡，说明数据已经到了，这里 postReceive 会立即触发下一次 handleClientEvent
-        postReceive(client);
-    }
-
-    void handleClientEvent(std::shared_ptr<ClientContext> client, const IocpRawEvent& ev) {
-        auto* io = CONTAINING_RECORD(ev.overlapped, IoContext, overlapped);
-        
-        if (ev.error != 0 || ev.bytes == 0) {
-            delete io;
-            removeClient(client.get());
-            return;
-        }
-
-        if (io->type == IoContext::RECV) {
-            std::string msg(io->buffer, ev.bytes);
-            LOG(INFO)("Recv #%d: %s", client->client_id, msg.c_str());
-            sendData(client, "Echo: " + msg);
-            delete io;
-            postReceive(client);
-        } else {
-            delete io;
-        }
-    }
-
-    void postReceive(std::shared_ptr<ClientContext> client) {
-        auto* io = new IoContext();
-        io->type = IoContext::RECV;
-        DWORD flags = 0, bytes = 0;
-        if (WSARecv(client->socket, &io->wsabuf, 1, &bytes, &flags, &io->overlapped, nullptr) == SOCKET_ERROR) {
-            if (WSAGetLastError() != WSA_IO_PENDING) {
-                delete io;
-                removeClient(client.get());
-            }
-        }
-    }
-
-    void sendData(std::shared_ptr<ClientContext> client, const std::string& data) {
-        auto* io = new IoContext();
-        io->type = IoContext::SEND;
-        size_t len = (std::min)((size_t)data.size(), sizeof(io->buffer));
-        memcpy(io->buffer, data.data(), len);
-        io->wsabuf.len = (ULONG)len;
-        
-        if (WSASend(client->socket, &io->wsabuf, 1, nullptr, 0, &io->overlapped, nullptr) == SOCKET_ERROR) {
-            if (WSAGetLastError() != WSA_IO_PENDING) delete io;
-        }
-    }
-
-    void removeClient(ClientContext* ptr) {
-        auto it = client_sources_.find(ptr);
-        if (it != client_sources_.end()) {
-            detachSource(it->second.get());
-            client_sources_.erase(it);
-        }
-        clients_map_.erase(ptr);
-    }
-
-    int port_;
-    SOCKET listen_socket_;
-    LPFN_ACCEPTEX lpfnAcceptEx_ = nullptr;
-    std::map<ClientContext*, std::shared_ptr<ClientContext>> clients_map_;
-    std::map<ClientContext*, std::unique_ptr<IocpHandleCompletionEventSource>> client_sources_;
-    std::unique_ptr<IocpHandleCompletionEventSource> accept_source_;
-    int next_id_ = 1;
+    std::shared_ptr<Win32MessageEventSource> paint_source_;
+    std::shared_ptr<Win32MessageEventSource> click_source_;
+    std::shared_ptr<Win32MessageEventSource> key_source_;
+    std::shared_ptr<Win32MessageEventSource> quit_source_;
 };
 
 int main() {
-    EventLoop loop(BackendType::WINDOWS_IOCP);
-    TcpServer server(loop, 8888);
-    server.start();
+    logger::setMinLevel(LogLevel::INFO);
+    LOG(INFO)("Starting Win32 Window Example with EventLoop");
+
+    // 创建窗口
+    if (!createWindow(L"RopUI - Win32 EventLoop Example", 800, 600)) {
+        return 1;
+    }
+
+    // 创建EventLoop，使用Win32Backend
+    EventLoop loop(BackendType::WINDOWS_WIN32);
+
+    // 创建窗口事件监听Watcher
+    auto window_watcher = std::make_unique<WindowWatcher>(loop);
+    window_watcher->start();
+
+    // 投递一个延迟任务
+    loop.postDelayed([] {
+        LOG(INFO)("This is a delayed task executed after 2 seconds");
+        ::InvalidateRect(g_hwnd, nullptr, TRUE);  // 触发重绘
+    }, std::chrono::milliseconds(2000));
+
+    // 投递一些周期任务来演示任务系统
+    int counter = 0;
+    std::function<void()> periodic_task;
+    periodic_task = [&loop, &counter, &periodic_task]() {
+        counter++;
+        LOG(INFO)("Periodic task #%d", counter);
+        
+        if (counter < 5) {
+            // 继续投递下一次
+            loop.postDelayed(periodic_task, std::chrono::milliseconds(3000));
+        } else {
+            LOG(INFO)("Periodic task completed");
+        }
+    };
+    
+    loop.postDelayed(periodic_task, std::chrono::milliseconds(3000));
+
+    LOG(INFO)("Entering event loop...");
+    LOG(INFO)("Try: Click the window, Press keys (ESC for message), Close window to exit");
+
+    // 运行事件循环
     loop.run();
+
+    LOG(INFO)("Event loop exited, cleaning up...");
+
+    // 清理
+    if (g_hwnd) {
+        ::DestroyWindow(g_hwnd);
+        g_hwnd = nullptr;
+    }
+
+    ::UnregisterClassW(WINDOW_CLASS_NAME, ::GetModuleHandle(nullptr));
+
+    LOG(INFO)("Win32 Window Example finished");
     return 0;
 }
-#endif
+
+#else
+#include <iostream>
+int main() {
+    std::cout << "This example only works on Windows" << std::endl;
+    return 1;
+}
+#endif // _WIN32
