@@ -6,10 +6,24 @@
 
 namespace RopHive::MacOS {
 
-KqueueEventSource::KqueueEventSource(int fd, int16_t filter)
+static uint64_t registrationKey(int fd, int16_t filter) {
+    // Pack (fd, filter) into a 64-bit key. fd is assumed to fit into 32 bits.
+    const uint64_t ufd = static_cast<uint32_t>(fd);
+    const uint64_t ufilter = static_cast<uint16_t>(filter);
+    return (ufd << 32) | ufilter;
+}
+
+KqueueEventSource::KqueueEventSource(int fd,
+                                     int16_t filter,
+                                     uint16_t flags,
+                                     uint32_t fflags,
+                                     intptr_t data)
     : IEventSource(BackendType::MACOS_KQUEUE),
       fd_(fd),
-      filter_(filter) {}
+      filter_(filter),
+      flags_(flags),
+      fflags_(fflags),
+      data_(data) {}
 
 void KqueueEventSource::arm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
@@ -17,9 +31,7 @@ void KqueueEventSource::arm(IEventCoreBackend& backend) {
     }
     if (armed_) return;
     auto& kq = static_cast<KqueueBackend&>(backend);
-    if (filter_ == EVFILT_READ) {
-        kq.registerReadFd(fd_);
-    }
+    kq.registerFd(fd_, filter_, flags_, fflags, data_);
     armed_ = true;
 }
 
@@ -29,9 +41,7 @@ void KqueueEventSource::disarm(IEventCoreBackend& backend) {
     }
     if (!armed_) return;
     auto& kq = static_cast<KqueueBackend&>(backend);
-    if (filter_ == EVFILT_READ) {
-        kq.unregisterReadFd(fd_);
-    }
+    kq.unregisterFd(fd_, filter_);
     armed_ = false;
 }
 
@@ -60,27 +70,37 @@ KqueueBackend::~KqueueBackend() {
 void KqueueBackend::addSource(IEventSource*) {}
 void KqueueBackend::removeSource(IEventSource*) {}
 
-void KqueueBackend::registerReadFd(int fd) {
+void KqueueBackend::registerFd(int fd,
+                               int16_t filter,
+                               uint16_t flags,
+                               uint32_t fflags,
+                               intptr_t data) {
     if (kq_ < 0) return;
-    if (registered_read_.find(fd) != registered_read_.end()) {
-        return;
+    const uint64_t key = registrationKey(fd, filter);
+    const Registration reg{flags, fflags, data};
+    const auto it = registered_.find(key);
+    if (it != registered_.end()) {
+        if (it->second.flags == reg.flags && it->second.fflags == reg.fflags && it->second.data == reg.data) {
+            return;
+        }
     }
     struct kevent kev;
-    EV_SET(&kev, fd, EVFILT_READ, EV_ADD | EV_ENABLE | EV_CLEAR, 0, 0, nullptr);
+    EV_SET(&kev, fd, filter, flags, fflags, data, nullptr);
     ::kevent(kq_, &kev, 1, nullptr, 0, nullptr);
-    registered_read_[fd] = true;
+    registered_[key] = reg;
 }
 
-void KqueueBackend::unregisterReadFd(int fd) {
+void KqueueBackend::unregisterFd(int fd, int16_t filter) {
     if (kq_ < 0) return;
-    auto it = registered_read_.find(fd);
-    if (it == registered_read_.end()) {
+    const uint64_t key = registrationKey(fd, filter);
+    const auto it = registered_.find(key);
+    if (it == registered_.end()) {
         return;
     }
     struct kevent kev;
-    EV_SET(&kev, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
+    EV_SET(&kev, fd, filter, EV_DELETE, 0, 0, nullptr);
     ::kevent(kq_, &kev, 1, nullptr, 0, nullptr);
-    registered_read_.erase(it);
+    registered_.erase(it);
 }
 
 void KqueueBackend::wait(int timeout) {
@@ -126,6 +146,19 @@ KqueueReadinessEventSource::KqueueReadinessEventSource(int fd, Callback cb)
     : KqueueEventSource(fd, EVFILT_READ),
       cb_(std::move(cb)) {}
 
+KqueueReadinessEventSource::KqueueReadinessEventSource(int fd, int16_t filter, Callback cb)
+    : KqueueEventSource(fd, filter),
+      cb_(std::move(cb)) {}
+
+KqueueReadinessEventSource::KqueueReadinessEventSource(int fd,
+                                                       int16_t filter,
+                                                       uint16_t flags,
+                                                       uint32_t fflags,
+                                                       intptr_t data,
+                                                       Callback cb)
+    : KqueueEventSource(fd, filter, flags, fflags, data),
+      cb_(std::move(cb)) {}
+
 void KqueueReadinessEventSource::dispatch(const void* raw_event) {
     if (!cb_) return;
     cb_(*asKqueueEvent(raw_event));
@@ -134,4 +167,3 @@ void KqueueReadinessEventSource::dispatch(const void* raw_event) {
 } // namespace RopHive::MacOS
 
 #endif // __APPLE__
-

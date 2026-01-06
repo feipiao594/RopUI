@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <sys/event.h>
@@ -23,7 +24,11 @@ struct KqueueRawEvent {
 
 class KqueueEventSource : public IEventSource {
 public:
-    KqueueEventSource(int fd, int16_t filter);
+    KqueueEventSource(int fd,
+                      int16_t filter,
+                      uint16_t flags = EV_ADD | EV_ENABLE | EV_CLEAR,
+                      uint32_t fflags = 0,
+                      intptr_t data = 0);
     ~KqueueEventSource() override = default;
 
     void arm(IEventCoreBackend& backend) override;
@@ -34,11 +39,17 @@ public:
 protected:
     int fd() const { return fd_; }
     int16_t filter() const { return filter_; }
+    uint16_t kqueueFlags() const { return flags_; }
+    uint32_t kqueueFflags() const { return fflags_; }
+    intptr_t kqueueData() const { return data_; }
     const KqueueRawEvent* asKqueueEvent(const void* raw_event) const;
 
 private:
     int fd_;
     int16_t filter_;
+    uint16_t flags_;
+    uint32_t fflags_;
+    intptr_t data_;
     bool armed_ = false;
 };
 
@@ -53,13 +64,25 @@ public:
     void wait(int timeout) override;
     RawEventSpan rawEvents() const override;
 
-    void registerReadFd(int fd);
-    void unregisterReadFd(int fd);
+    // kqueue registration helpers (used by EventSource).
+    // A (fd, filter) pair is a unique registration.
+    void registerFd(int fd,
+                    int16_t filter,
+                    uint16_t flags = EV_ADD | EV_ENABLE | EV_CLEAR,
+                    uint32_t fflags = 0,
+                    intptr_t data = 0);
+    void unregisterFd(int fd, int16_t filter);
 
 private:
+    struct Registration {
+        uint16_t flags;
+        uint32_t fflags;
+        intptr_t data;
+    };
+
     int kq_{-1};
     size_t max_events_;
-    std::unordered_map<int, bool> registered_read_;
+    std::unordered_map<uint64_t, Registration> registered_;
     std::vector<struct kevent> events_;
     std::vector<KqueueRawEvent> ready_;
 };
@@ -75,6 +98,13 @@ public:
     using Callback = std::function<void(const KqueueRawEvent&)>;
 
     explicit KqueueReadinessEventSource(int fd, Callback cb);
+    KqueueReadinessEventSource(int fd, int16_t filter, Callback cb);
+    KqueueReadinessEventSource(int fd,
+                               int16_t filter,
+                               uint16_t flags,
+                               uint32_t fflags,
+                               intptr_t data,
+                               Callback cb);
     void dispatch(const void* raw_event) override;
 
 private:
@@ -86,4 +116,3 @@ private:
 #endif // __APPLE__
 
 #endif // _ROP_PLATFORM_MACOS_KQUEUE_EVENTLOOP_BACKEND_H
-

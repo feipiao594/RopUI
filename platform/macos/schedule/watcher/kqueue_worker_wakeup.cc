@@ -34,7 +34,8 @@ KqueueWorkerWakeUpWatcher::KqueueWorkerWakeUpWatcher(IOWorker& worker)
 
 KqueueWorkerWakeUpWatcher::~KqueueWorkerWakeUpWatcher() {
     stop();
-    
+    source_.reset();
+    state_.reset();
 }
 
 void KqueueWorkerWakeUpWatcher::start() {
