@@ -12,7 +12,7 @@ static constexpr int kWakeEventType = (int)NSEventTypeApplicationDefined;
 
 CocoaWakeUpWatcher::CocoaWakeUpWatcher(EventLoop& loop)
     : IWakeUpWatcher(loop) {
-    source_ = std::make_unique<CocoaEventTypeSource>(
+    source_ = std::make_shared<CocoaEventTypeSource>(
         kWakeEventType,
         [](const CocoaRawEvent&) {
             // no-op: just drain wake events
@@ -21,17 +21,18 @@ CocoaWakeUpWatcher::CocoaWakeUpWatcher(EventLoop& loop)
 
 CocoaWakeUpWatcher::~CocoaWakeUpWatcher() {
     stop();
+    source_.reset();
 }
 
 void CocoaWakeUpWatcher::start() {
     if (attached_) return;
-    attachSource(source_.get());
+    attachSource(source_);
     attached_ = true;
 }
 
 void CocoaWakeUpWatcher::stop() {
     if (!attached_) return;
-    detachSource(source_.get());
+    detachSource(source_);
     attached_ = false;
 }
 

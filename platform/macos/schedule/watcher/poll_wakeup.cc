@@ -54,7 +54,7 @@ void PollWakeUpWatcher::stop() {
 }
 
 void PollWakeUpWatcher::notify() {
-    if (state_ && state_->pipe_fds_[1] < 0) return;
+    if (!state_ || state_->pipe_fds_[1] < 0) return;
 
     char one = 1;
     ssize_t n = ::write(state_->pipe_fds_[1], &one, sizeof(one));

@@ -9,6 +9,7 @@
 
 namespace RopHive::MacOS {
 
+struct KqueueWorkerWakeUpState;
 class KqueueWorkerWakeUpWatcher final : public IWorkerWakeUpWatcher {
 public:
     explicit KqueueWorkerWakeUpWatcher(IOWorker& worker);
@@ -22,9 +23,9 @@ private:
     void createSource();
 
 private:
-    int pipe_fds_[2]{-1, -1};
+    std::shared_ptr<KqueueWorkerWakeUpState> state_;
     bool attached_{false};
-    std::unique_ptr<IEventSource> source_;
+    std::shared_ptr<IEventSource> source_;
 };
 
 } // namespace RopHive::MacOS

@@ -12,47 +12,60 @@
 
 namespace RopHive::MacOS {
 
+struct KqueueWakeUpState {
+    int pipe_fds_[2]{-1, -1};
+
+    ~KqueueWakeUpState () {
+        if (pipe_fds_[0] >= 0) ::close(pipe_fds_[0]);
+        if (pipe_fds_[1] >= 0) ::close(pipe_fds_[1]);
+    }
+};
+
 KqueueWakeUpWatcher::KqueueWakeUpWatcher(EventLoop& loop)
     : IWakeUpWatcher(loop) {
-    if (::pipe(pipe_fds_) < 0) {
+    state_ = std::shared_ptr<KqueueWakeUpState>();
+    if (::pipe(state_->pipe_fds_) < 0) {
         throw std::runtime_error(std::string("pipe failed: ") + std::strerror(errno));
     }
-    ::fcntl(pipe_fds_[0], F_SETFL, O_NONBLOCK);
-    ::fcntl(pipe_fds_[1], F_SETFL, O_NONBLOCK);
+    ::fcntl(state_->pipe_fds_[0], F_SETFL, O_NONBLOCK);
+    ::fcntl(state_->pipe_fds_[1], F_SETFL, O_NONBLOCK);
     createSource();
 }
 
 KqueueWakeUpWatcher::~KqueueWakeUpWatcher() {
     stop();
-    if (pipe_fds_[0] >= 0) ::close(pipe_fds_[0]);
-    if (pipe_fds_[1] >= 0) ::close(pipe_fds_[1]);
+    source_.reset();
+    state_.reset();
 }
 
 void KqueueWakeUpWatcher::start() {
     if (attached_) return;
-    attachSource(source_.get());
+    attachSource(source_);
     attached_ = true;
 }
 
 void KqueueWakeUpWatcher::stop() {
     if (!attached_) return;
-    detachSource(source_.get());
+    detachSource(source_);
     attached_ = false;
 }
 
 void KqueueWakeUpWatcher::notify() {
-    if (pipe_fds_[1] < 0) return;
+    if (!state_ || state_->pipe_fds_[1] < 0) return;
     char one = 1;
-    const ssize_t n = ::write(pipe_fds_[1], &one, sizeof(one));
+    const ssize_t n = ::write(state_->pipe_fds_[1], &one, sizeof(one));
     (void)n;
 }
 
 void KqueueWakeUpWatcher::createSource() {
-    source_ = std::make_unique<KqueueReadinessEventSource>(
-        pipe_fds_[0],
-        [this](const KqueueRawEvent&) {
+    auto state = state_;
+    source_ = std::make_shared<KqueueReadinessEventSource>(
+        state ? state->pipe_fds_[0] : -1,
+        [state](const KqueueRawEvent&) {
             char buf[64];
-            while (::read(pipe_fds_[0], buf, sizeof(buf)) > 0) {
+            const int pipe_fds = state ? state->pipe_fds_[0] : -1;
+            if (pipe_fds < 0) return;
+            while (::read(pipe_fds, buf, sizeof(buf)) > 0) {
             }
         });
 }

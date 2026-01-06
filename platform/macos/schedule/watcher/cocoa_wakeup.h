@@ -18,7 +18,7 @@ public:
     void notify() override;
 
 private:
-    std::unique_ptr<IEventSource> source_;
+    std::shared_ptr<IEventSource> source_;
     bool attached_{false};
 };
 
