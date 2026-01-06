@@ -50,6 +50,7 @@ void CocoaWorkerWakeUpWatcher::notify() {
                                         data1:0
                                         data2:0];
     [NSApp postEvent:ev atStart:NO];
+    // here we set wakeup subtype: 0
 }
 
 } // namespace RopHive::MacOS

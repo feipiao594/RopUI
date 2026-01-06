@@ -55,6 +55,8 @@ void CocoaBackend::removeSource(IEventSource*) {}
 
 void CocoaBackend::wait(int timeout) {
     releaseReady(ready_);
+    // in other backend, here is always `ready_events_.clear();`
+    // here we need to call CFRelease to release the finish event.
 
     @autoreleasepool {
         NSDate* untilDate = nil;
@@ -62,16 +64,19 @@ void CocoaBackend::wait(int timeout) {
             untilDate = [NSDate distantFuture];
         } else {
             untilDate = [NSDate dateWithTimeIntervalSinceNow:(double)timeout / 1000.0];
+            // A NSTimeInterval value is always specified in seconds
         }
 
         NSEvent* ev = [NSApp nextEventMatchingMask:NSEventMaskAny
                                          untilDate:untilDate
                                             inMode:NSDefaultRunLoopMode
                                            dequeue:YES];
-        if (!ev) {
-            return;
-        }
+        // About the `dequeue: Yes`:
+        // true to remove the returned event from the event queue; false to leave the returned event in the queue.
+        // here we set it with `Yes` for taking control of event stream
 
+        if (!ev) return;
+        
         // Keep the event alive across dispatch (runOnce() calls wait() then dispatch).
         CFRetain((__bridge CFTypeRef)ev);
         ready_.push_back(CocoaRawEvent{(int)[ev type], (void*)ev});
