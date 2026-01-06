@@ -39,6 +39,19 @@ target_link_libraries(ropui
         ropui_concurrency
 )
 
+if(APPLE)
+find_library(APPKIT_LIBRARY AppKit REQUIRED)
+find_library(COREFOUNDATION_LIBRARY CoreFoundation REQUIRED)
+find_library(SYSTEMCONFIGURATION_LIBRARY SystemConfiguration REQUIRED)
+
+target_link_libraries(ropui
+    PRIVATE
+    ${APPKIT_LIBRARY}
+    ${COREFOUNDATION_LIBRARY}
+    ${SYSTEMCONFIGURATION_LIBRARY}
+)
+endif()
+
 if(ROPUI_BUILD_EXAMPLES)
 add_subdirectory(example)
 endif()
@@ -47,3 +60,4 @@ if(ROPUI_BUILD_TESTS)
 enable_testing()
 add_subdirectory(tests)
 endif()
+

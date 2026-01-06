@@ -22,7 +22,7 @@ struct PollWorkerWakeUpState {
 
 PollWorkerWakeUpWatcher::PollWorkerWakeUpWatcher(IOWorker& worker)
     : IWorkerWakeUpWatcher(worker) {
-    state_ = std::shared_ptr<PollWorkerWakeUpState>();
+    state_ = std::make_shared<PollWorkerWakeUpState>();
     if (::pipe(state_->pipe_fds_) < 0) {
         throw std::runtime_error(
             std::string("pipe failed: ") + std::strerror(errno));

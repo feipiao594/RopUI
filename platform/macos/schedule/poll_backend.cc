@@ -53,7 +53,7 @@ PollEventSource::asPollEvent(const void* raw_event) const {
     return static_cast<const PollRawEvent*>(raw_event);
 }
 
-PollBackend::PollBackend() : IEventCoreBackend(BackendType::LINUX_POLL) {};
+PollBackend::PollBackend() : IEventCoreBackend(BackendType::MACOS_POLL) {};
 
 void PollBackend::addSource(IEventSource*) {}
 

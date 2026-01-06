@@ -23,7 +23,7 @@ struct KqueueWakeUpState {
 
 KqueueWakeUpWatcher::KqueueWakeUpWatcher(EventLoop& loop)
     : IWakeUpWatcher(loop) {
-    state_ = std::shared_ptr<KqueueWakeUpState>();
+    state_ = std::make_shared<KqueueWakeUpState>();
     if (::pipe(state_->pipe_fds_) < 0) {
         throw std::runtime_error(std::string("pipe failed: ") + std::strerror(errno));
     }
