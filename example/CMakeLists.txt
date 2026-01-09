@@ -9,7 +9,7 @@ endif()
 
 if(APPLE)
 add_subdirectory(kqueue_tcp_server_example)
-add_subdirectory(cocoa_metal_bad_apple)
+# add_subdirectory(cocoa_metal_bad_apple)  # 需要手动启用，详见该目录下的README.md
 endif()
 
 if(WIN32)
