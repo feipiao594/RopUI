@@ -98,6 +98,7 @@ public:
     void wakeup();
     
     void postPrivate(TaskFn task);
+    void postToLocal(TaskFn task);
     void addTimer(TimePoint deadline, TaskFn task);
     std::optional<TaskFn> tryStealTop();
 

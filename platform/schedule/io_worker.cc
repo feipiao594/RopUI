@@ -4,10 +4,12 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <functional>
 
 #include <log.hpp>
 
 #include "schedule/worker_watcher.h"
+#include "schedule/sched_trace.h"
 
 #ifdef __linux__
 #include "linux/schedule/watcher/epoll_worker_wakeup.h"
@@ -67,6 +69,15 @@ void IOWorker::bind(Hive& hive, size_t worker_id) {
     hive_ = &hive;
     worker_id_ = worker_id;
 
+    SCHED_TRACE_E(worker_id_,
+                 ::RopHive::SchedTrace::Event::WorkerBind,
+                 "backend=%d local_cap=%zu local_batch=%zu global_batch=%zu steal_batch=%zu",
+                 static_cast<int>(options_.io_backend),
+                 options_.local_queue_capacity,
+                 options_.local_batch_size,
+                 options_.global_batch_size,
+                 options_.steal_batch_size);
+
     core_ = createEventLoopCore(options_.io_backend);
     if (!core_) {
         throw std::runtime_error("IOWorker: createEventLoopCore returned null");
@@ -118,6 +129,44 @@ void IOWorker::postPrivate(TaskFn task) {
     });
 }
 
+#define DEBUG
+#ifdef DEBUG
+void IOWorker::postToLocal(TaskFn task) {
+    // this function only for debug
+    if (!task) return;
+
+    // Only the owner worker thread should push into its local deque.
+    // For non-owner threads, degrade to the global pool to stay safe.
+    if (IOWorker::currentWorker() != this) {
+        if (hive_) {
+            SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::LocalDegradeGlobal, "reason=non_owner");
+            hive_->postIO(std::move(task));
+            return;
+        }
+        task();
+        return;
+    }
+
+    if (local_dq_.remainingSpace() != 0 && local_dq_.tryPushBottom(std::move(task))) {
+        const size_t local_sz = local_dq_.approxSize();
+        SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::LocalPush, "local=%zu", local_sz);
+        return;
+    }
+
+    if (hive_) {
+        SCHED_TRACE_E(worker_id_,
+                     ::RopHive::SchedTrace::Event::LocalDegradeGlobal,
+                     "reason=full local=%zu",
+                     local_dq_.approxSize());
+        hive_->postIO(std::move(task));
+        return;
+    }
+
+    // No hive bound; execute inline as a last resort.
+    task();
+}
+#endif
+
 void IOWorker::addTimer(TimePoint deadline, TaskFn task) {
     if (!task) return;
     inbound_.push(InboundCommand{
@@ -128,6 +177,7 @@ void IOWorker::addTimer(TimePoint deadline, TaskFn task) {
 }
 
 void IOWorker::wakeup() {
+    SCHED_TRACE_E0(worker_id_, ::RopHive::SchedTrace::Event::WakeupNotify);
     if (wakeup_) {
         wakeup_->notify();
     }
@@ -222,23 +272,35 @@ void IOWorker::drainInbound() {
             break;
         }
     }
+
+    SCHED_TRACE_E(worker_id_,
+                 ::RopHive::SchedTrace::Event::InboundDrained,
+                 "n=%zu inbound=%zu",
+                 inbound_tmp_.size(),
+                 inbound_.approxSize());
 }
 
 void IOWorker::runPrivateTasks() {
+    size_t ran = 0;
     while (!private_queue_.empty()) {
         TaskFn task = std::move(private_queue_.front());
         private_queue_.pop_front();
         if (task) {
             task();
         }
+        ran += 1;
         if (stop_requested_.load(std::memory_order_acquire) || (hive_ && hive_->getExitRequested())) {
-            return;
+            break;
         }
+    }
+    if (ran != 0) {
+        SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::PrivateDone, "n=%zu", ran);
     }
 }
 
 void IOWorker::runExpiredTimers() {
     const auto now = Clock::now();
+    size_t ran = 0;
 
     while (!timers_.empty() && timers_.top().deadline <= now) {
         TaskFn task = std::move(timers_.top().task);
@@ -247,30 +309,41 @@ void IOWorker::runExpiredTimers() {
         if (task) {
             task();
         }
+        ran += 1;
         if (stop_requested_.load(std::memory_order_acquire) || (hive_ && hive_->getExitRequested())) {
-            return;
+            break;
         }
+    }
+    if (ran != 0) {
+        SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::TimerDone, "n=%zu", ran);
     }
 }
 
 bool IOWorker::runLocalBatch() {
     const size_t budget = options_.local_batch_size;
-    bool ran_any = false;
+    size_t ran = 0;
     for (size_t i = 0; i < budget; ++i) {
         auto opt = local_dq_.tryPopBottom();
         if (!opt.has_value()) {
             break;
         }
         auto task = std::move(*opt);
-        ran_any = true;
+        ran += 1;
         if (task) {
             task();
         }
         if (stop_requested_.load(std::memory_order_acquire) || (hive_ && hive_->getExitRequested())) {
-            return ran_any;
+            break;
         }
     }
-    return ran_any;
+    if (ran != 0) {
+        SCHED_TRACE_E(worker_id_,
+                     ::RopHive::SchedTrace::Event::LocalDone,
+                     "n=%zu local=%zu",
+                     ran,
+                     local_dq_.approxSize());
+    }
+    return ran != 0;
 }
 
 bool IOWorker::harvestGlobalBatch() {
@@ -279,12 +352,12 @@ bool IOWorker::harvestGlobalBatch() {
     const size_t n = hive_->tryPopGlobalMicroBatch(batch, options_.global_batch_size);
     if (n == 0) return false;
 
-    bool enqueued = false;
+    size_t moved_or_ran = 0;
     for (auto& task : batch) {
         if (!task) continue;
         TaskFn local_task = std::move(task);
         if (local_dq_.remainingSpace() != 0 && local_dq_.tryPushBottom(std::move(local_task))) {
-            enqueued = true;
+            moved_or_ran += 1;
             continue;
         }
         // Defensive code, the local_dq_ here is always empty
@@ -292,18 +365,26 @@ bool IOWorker::harvestGlobalBatch() {
         if (local_task) {
             local_task();
         }
-        enqueued = true;
+        moved_or_ran += 1;
         if (stop_requested_.load(std::memory_order_acquire) || (hive_ && hive_->getExitRequested())) {
             break;
         }
     }
-    return enqueued;
+    if (moved_or_ran != 0) {
+        SCHED_TRACE_E(worker_id_,
+                     ::RopHive::SchedTrace::Event::GlobalHarvestDone,
+                     "n=%zu local=%zu",
+                     moved_or_ran,
+                     local_dq_.approxSize());
+    }
+    return moved_or_ran != 0;
 }
 
 bool IOWorker::stealOnce() {
     if (!hive_) return false;
     const size_t n = hive_->IOWorkerCount();
     if (n <= 1) return false;
+    if (options_.steal_batch_size == 0) return false;
 
     std::uniform_int_distribution<size_t> dist(0, n - 1);
 
@@ -317,7 +398,23 @@ bool IOWorker::stealOnce() {
         if (!victim) continue;
 
         const size_t steal_n = std::max<size_t>(1, options_.steal_batch_size);
-        bool stole_any = false;
+        size_t stole_cnt = 0;
+        size_t victim_sz = 0;
+
+        if (RopHive::SchedTrace::enabled())
+            victim_sz = victim->local_dq_.approxSize();
+
+        if (RopHive::SchedTrace::enabled() && victim_sz != 0) {
+            const auto st = victim->local_dq_.debugState();
+            SCHED_TRACE_E(worker_id_,
+                         ::RopHive::SchedTrace::Event::StealAttempt,
+                         "victim=%zu victim_local=%zu v_top=%zu v_bottom=%zu v_size=%zu",
+                         victim_id,
+                         victim_sz,
+                         st.top,
+                         st.bottom,
+                         st.size);
+        }
 
         for (size_t j = 0; j < steal_n; ++j) {
             auto stolen = victim->tryStealTop();
@@ -328,17 +425,37 @@ bool IOWorker::stealOnce() {
             // Prefer to enqueue locally, fallback to inline exec.
             TaskFn task = std::move(*stolen);
             if (local_dq_.remainingSpace() != 0 && local_dq_.tryPushBottom(std::move(task))) {
+                stole_cnt += 1;
                 continue;
             }
             if (task) {
                 task();
             }
             
-            stole_any = true;
+            stole_cnt += 1;
         }
 
-        if (stole_any) {
+        if (stole_cnt != 0) {
+            SCHED_TRACE_E(worker_id_,
+                         ::RopHive::SchedTrace::Event::StealSuccess,
+                         "victim=%zu stolen=%zu local=%zu victim_local=%zu",
+                         victim_id,
+                         stole_cnt,
+                         local_dq_.approxSize(),
+                         victim->local_dq_.approxSize());
             return true;
+        }
+
+        if (RopHive::SchedTrace::enabled() && victim_sz != 0) {
+            const auto st = victim->local_dq_.debugState();
+            SCHED_TRACE_E(worker_id_,
+                         ::RopHive::SchedTrace::Event::StealFail,
+                         "victim=%zu victim_local=%zu v_top=%zu v_bottom=%zu v_size=%zu",
+                         victim_id,
+                         victim_sz,
+                         st.top,
+                         st.bottom,
+                         st.size);
         }
     }
     return false;
@@ -353,22 +470,70 @@ void IOWorker::run() {
     tls_worker_id = worker_id_;
     tls_worker_valid = true;
 
+    const auto tid = static_cast<unsigned long long>(
+        std::hash<std::thread::id>{}(std::this_thread::get_id()));
+    SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::WorkerRunStart, "tid=%llu", tid);
+
     if (wakeup_) {
         wakeup_->start();
     }
 
     while (!stop_requested_.load(std::memory_order_acquire) && !hive_->getExitRequested()) {
+        if (RopHive::SchedTrace::enabled()) {
+            static thread_local uint32_t tick_seq = 0;
+            tick_seq += 1;
+            if ((tick_seq & 0x3FF) == 0) {
+                SCHED_TRACE_E(worker_id_,
+                             ::RopHive::SchedTrace::Event::LoopTick,
+                             "inbound=%zu private=%zu local=%zu global=%zu timers=%u",
+                             inbound_.approxSize(),
+                             private_queue_.size(),
+                             local_dq_.approxSize(),
+                             hive_ ? hive_->globalMicroApproxSize() : 0,
+                             timer_count_.load(std::memory_order_acquire));
+                tick_seq = 0;
+            }
+        }
+
         const int timeout_ms = computeNextTimeoutMs();
 
         const bool will_block = (timeout_ms != 0);
         if (will_block) {
             sleeping_.store(true, std::memory_order_release);
+            SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::SleepEnter, "timeout_ms=%d", timeout_ms);
+        }
+
+        if (RopHive::SchedTrace::enabled()) {
+            static thread_local uint32_t runonce_seq = 0;
+            runonce_seq += 1;
+            if ((runonce_seq & 0xFF) == 0) {
+                SCHED_TRACE_E(worker_id_,
+                             ::RopHive::SchedTrace::Event::RunOnceBegin,
+                             "timeout_ms=%d inbound=%zu private=%zu local=%zu global=%zu timers=%u",
+                             timeout_ms,
+                             inbound_.approxSize(),
+                             private_queue_.size(),
+                             local_dq_.approxSize(),
+                             hive_ ? hive_->globalMicroApproxSize() : 0,
+                             timer_count_.load(std::memory_order_acquire));
+                runonce_seq = 0;
+            }
         }
 
         core_->runOnce(timeout_ms);
 
+        if (RopHive::SchedTrace::enabled()) {
+            static thread_local uint32_t runonce_end_seq = 0;
+            runonce_end_seq += 1;
+            if ((runonce_end_seq & 0xFF) == 0) {
+                SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::RunOnceEnd, "timeout_ms=%d", timeout_ms);
+                runonce_end_seq = 0;
+            }
+        }
+
         if (will_block) {
             sleeping_.store(false, std::memory_order_release);
+            SCHED_TRACE_E0(worker_id_, ::RopHive::SchedTrace::Event::SleepExit);
         }
 
         drainInbound();
@@ -390,6 +555,7 @@ void IOWorker::run() {
         }
     }
 
+    SCHED_TRACE_E(worker_id_, ::RopHive::SchedTrace::Event::WorkerRunStop, "tid=%llu", tid);
     tls_worker_valid = false;
     tls_worker_id = 0;
     tls_worker = nullptr;

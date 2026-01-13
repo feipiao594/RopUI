@@ -1,4 +1,5 @@
 add_subdirectory(log_test)
+add_subdirectory(work_steal_trace_demo)
 
 if (UNIX AND NOT APPLE)
 add_subdirectory(linux_loop_core_test)
