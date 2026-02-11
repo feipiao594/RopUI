@@ -1,14 +1,14 @@
+#include <iostream>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <iostream>
 
+#include <log.hpp>
 #include <platform/network/ip_endpoint.h>
 #include <platform/network/watcher/tcp_watchers.h>
 #include <platform/schedule/hive.h>
 #include <platform/schedule/io_worker.h>
-#include <log.hpp>
 
 using namespace RopHive;
 using namespace RopHive::Network;
@@ -19,152 +19,153 @@ using namespace RopHive::Network;
  * - One-shot HTTP GET client
  * - Correct non-blocking connect state machine
  */
-class SimpleHttpClient final : public std::enable_shared_from_this<SimpleHttpClient> {
+class SimpleHttpClient final
+    : public std::enable_shared_from_this<SimpleHttpClient> {
 public:
-    using ResponseCallback = std::function<void(const std::string&)>;
+  using ResponseCallback = std::function<void(const std::string &)>;
 
-    SimpleHttpClient(IOWorker& worker,
-                     std::string host,
-                     int port,
-                     std::string path,
-                     ResponseCallback cb)
-        : worker_(worker),
-          host_(std::move(host)),
-          port_(port),
-          path_(std::move(path)),
-          cb_(std::move(cb)) {}
+  SimpleHttpClient(IOWorker &worker, std::string host, int port,
+                   std::string path, ResponseCallback cb)
+      : worker_(worker), host_(std::move(host)), port_(port),
+        path_(std::move(path)), cb_(std::move(cb)) {}
 
-    void start() {
-        auto self = shared_from_this();
+  void start() {
+    auto self = shared_from_this();
 
-        IpEndpointV4 v4;
-        v4.ip = {127, 0, 0, 1};
-        v4.port = static_cast<uint16_t>(port_);
+    auto remote_parse = parseIpEndpoint(host_ + ":" + std::to_string(port_));
 
-        TcpConnectOption opt;
-        opt.fill_endpoints = true;
-
-        connect_ = createTcpConnectWatcher(
-            worker_,
-            v4,
-            opt,
-            [self](std::unique_ptr<ITcpStream> stream) { self->onConnected(std::move(stream)); },
-            [self](int err) { self->finishWithError(err); });
-        connect_->start();
+    if (!remote_parse.has_value()) {
+      LOG(FATAL)("error ip: %s:%d", host_.c_str(), port_);
+      exit(1);
     }
+    IpEndpoint remote = *remote_parse;
+    TcpConnectOption opt;
+    opt.fill_endpoints = true;
+
+    connect_ = createTcpConnectWatcher(
+        worker_, remote, opt,
+        [self](std::unique_ptr<ITcpStream> stream) {
+          self->onConnected(std::move(stream));
+        },
+        [self](int err) { self->finishWithError(err); });
+    connect_->start();
+  }
+
+  void mannualFinish() {
+    finish();
+  }
 
 private:
-    void onConnected(std::unique_ptr<ITcpStream> stream) {
-        auto self = shared_from_this();
-        conn_ = createTcpConnectionWatcher(
-            worker_,
-            TcpConnectionOption{},
-            std::move(stream),
-            [self](std::string_view chunk) { self->onRecv(chunk); },
-            [self]() { self->finish(); },
-            [self](int err) { self->finishWithError(err); },
-            [self]() { self->onSendReady(); });
-        conn_->start();
-        sendRequest();
+  void onConnected(std::unique_ptr<ITcpStream> stream) {
+    auto self = shared_from_this();
+    conn_ = createTcpConnectionWatcher(
+        worker_, TcpConnectionOption{}, std::move(stream),
+        [self](std::string_view chunk) { self->onRecv(chunk); },
+        [self]() { self->finish(); },
+        [self](int err) { self->finishWithError(err); },
+        [self]() { self->onSendReady(); });
+    conn_->start();
+    sendRequest();
+  }
+
+  void sendRequest() {
+    std::string req = 
+          "GET " + path_ + " HTTP/1.1\r\n"
+          "Host: " + host_ + "\r\n"
+          "User-Agent: curl/8.17.0\r\n"
+          "Accept: */*\r\n\r\n";
+
+    LOG(INFO)("send request:\n%s", req.c_str());
+
+    pending_out_.assign(req.data(), req.size());
+    flushSend();
+  }
+
+  void onRecv(std::string_view chunk) {
+    response_.append(chunk.data(), chunk.size());
+  }
+
+  void onSendReady() { flushSend(); }
+
+  void flushSend() {
+    if (pending_out_.empty())
+      return;
+    if (!conn_)
+      return;
+
+    while (!pending_out_.empty()) {
+      auto res = conn_->trySend(pending_out_);
+      if (res.err != 0) {
+        finishWithError(res.err);
+        return;
+      }
+      if (res.n > 0) {
+        pending_out_.erase(0, res.n);
+        continue;
+      }
+      if (res.would_block) {
+        return;
+      }
+      return;
     }
 
-    void sendRequest() {
-        std::string req =
-            "GET " + path_ + " HTTP/1.1\r\n"
-            "Host: " + host_ + "\r\n"
-            "Connection: close\r\n\r\n";
+    if (conn_)
+      conn_->shutdownWrite();
+  }
 
-        LOG(INFO)("send request:\n%s", req.c_str());
+  void finish() {
+    LOG(DEBUG)("finish()");
+    if (done_)
+      return;
+    done_ = true;
+    if (cb_)
+      cb_(response_);
+    connect_.reset();
+    conn_.reset();
+  }
 
-        pending_out_.assign(req.data(), req.size());
-        flushSend();
-    }
-
-    void onRecv(std::string_view chunk) {
-        response_.append(chunk.data(), chunk.size());
-    }
-
-    void onSendReady() {
-        flushSend();
-    }
-
-    void flushSend() {
-        if (pending_out_.empty()) return;
-        if (!conn_) return;
-
-        while (!pending_out_.empty()) {
-            auto res = conn_->trySend(pending_out_);
-            if (res.err != 0) {
-                finishWithError(res.err);
-                return;
-            }
-            if (res.n > 0) {
-                pending_out_.erase(0, res.n);
-                continue;
-            }
-            if (res.would_block) {
-                return;
-            }
-            return;
-        }
-
-        if (conn_) conn_->shutdownWrite();
-    }
-
-    void finish() {
-        LOG(DEBUG)("finish()");
-        if (done_) return;
-        done_ = true;
-        if (cb_) cb_(response_);
-        connect_.reset();
-        conn_.reset();
-    }
-
-    void finishWithError(int err) {
-        LOG(WARN)("http client error: %d", err);
-        finish();
-    }
+  void finishWithError(int err) {
+    LOG(WARN)("http client error: %d", err);
+    finish();
+  }
 
 private:
-    IOWorker& worker_;
-    std::string host_;
-    int port_;
-    std::string path_;
-    ResponseCallback cb_;
+  IOWorker &worker_;
+  std::string host_;
+  int port_;
+  std::string path_;
+  ResponseCallback cb_;
 
-    bool done_{false};
-    std::shared_ptr<ITcpConnectWatcher> connect_;
-    std::shared_ptr<ITcpConnectionWatcher> conn_;
-    std::string response_;
-    std::string pending_out_;
+  bool done_{false};
+  std::shared_ptr<ITcpConnectWatcher> connect_;
+  std::shared_ptr<ITcpConnectionWatcher> conn_;
+  std::string response_;
+  std::string pending_out_;
 };
 
 /* ---------------- demo main ---------------- */
 
 int main() {
-    logger::setMinLevel(LogLevel::DEBUG);
+  logger::setMinLevel(LogLevel::DEBUG);
 
-    Hive::Options opt;
-    opt.io_backend = BackendType::LINUX_EPOLL;
+  Hive::Options opt;
+  opt.io_backend = BackendType::LINUX_EPOLL;
 
-    Hive hive(opt);
-    auto worker = std::make_shared<IOWorker>(opt);
-    hive.attachIOWorker(worker);
+  Hive hive(opt);
+  auto worker = std::make_shared<IOWorker>(opt);
+  hive.attachIOWorker(worker);
 
-    hive.postToWorker(0, [worker, &hive]() {
-        auto client = std::make_shared<SimpleHttpClient>(
-            *worker,
-            "127.0.0.1",
-            8080,
-            "/",
-            [&](const std::string& resp) {
-                std::cout << "=== response ===\n";
-                std::cout << resp << "\n";
-                hive.requestExit();
-            });
-        client->start();
-    });
+  hive.postToWorker(0, [worker, &hive]() {
+    auto client = std::make_shared<SimpleHttpClient>(
+        // baidu dns ip: 36.152.44.132
+        *worker, "36.152.44.132", 80, "/", [&](const std::string &resp) {
+          std::cout << "=== response ===\n";
+          std::cout << resp << "\n";
+          hive.requestExit();
+        });
+    client->start();
+  });
 
-    hive.run();
-    return 0;
+  hive.run();
+  return 0;
 }

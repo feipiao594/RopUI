@@ -161,12 +161,12 @@ private:
       peer_closed_ = true;
     }
 
-    if (events & EPOLLIN) {
+    if ((events & EPOLLIN) || peer_closed_) {
       handleRead();
-      if (peer_closed_) {
-        closeNow();
-        return;
-      }
+    }
+    if (peer_closed_) {
+      closeNow();
+      return;
     }
 
     if ((events & EPOLLOUT) && want_send_ready_) {
@@ -251,7 +251,8 @@ public:
     TcpDetail::applyLingerIfConfigured(fd_, option_.linger_sec);
 
     source_ = std::make_shared<RopHive::Linux::PollReadinessEventSource>(
-        fd_, POLLIN | POLLERR | POLLHUP, [this](short revents) { onReady(revents); });
+        fd_, POLLIN | POLLERR | POLLHUP,
+        [this](short revents) { onReady(revents); });
     armed_events_ = POLLIN | POLLERR | POLLHUP;
   }
 
@@ -362,12 +363,12 @@ private:
       peer_closed_ = true;
     }
 
-    if (revents & POLLIN) {
+    if ((revents & POLLIN) || peer_closed_) {
       handleRead();
-      if (peer_closed_) {
-        closeNow();
-        return;
-      }
+    }
+    if (peer_closed_) {
+      closeNow();
+      return;
     }
 
     if ((revents & POLLOUT) && want_send_ready_) {

@@ -12,13 +12,13 @@ void IEventLoopCore::addSource(std::shared_ptr<IEventSource> source) {
     if (!source) return;
     LOG(DEBUG)("source add to core");
     std::lock_guard<std::mutex> lock(mu_);
-    pending_add_.push_back(std::move(source));
+    pending_ops_.push_back(PendingOp{PendingOpKind::Add, std::move(source)});
 }
 
 void IEventLoopCore::removeSource(std::shared_ptr<IEventSource> source) {
     if (!source) return;
     std::lock_guard<std::mutex> lock(mu_);
-    pending_remove_.push_back(std::move(source));
+    pending_ops_.push_back(PendingOp{PendingOpKind::Remove, std::move(source)});
 }
 
 void IEventLoopCore::runOnce(int timeout) {
@@ -63,32 +63,40 @@ void IEventLoopCore::applyPendingChanges() {
         return;
     }
 
-    std::vector<std::shared_ptr<IEventSource>> pending_add;
-    std::vector<std::shared_ptr<IEventSource>> pending_remove;
+    std::vector<PendingOp> ops;
     {
         std::lock_guard<std::mutex> lock(mu_);
-        pending_add.swap(pending_add_);
-        pending_remove.swap(pending_remove_);
+        ops.swap(pending_ops_);
     }
 
-    for (auto& src : pending_add) {
-        if (!src) continue;
-        backend_->addSource(src.get());
-        src->arm(*backend_);
-        
-        sources_.push_back(std::move(src));
-    }
+    for (auto& op : ops) {
+        if (!op.src) continue;
 
-    for (auto& src : pending_remove) {
-        if (!src) continue;
-        src->disarm(*backend_);
-        backend_->removeSource(src.get());
+        if (op.kind == PendingOpKind::Add) {
+            backend_->addSource(op.src.get());
+            op.src->arm(*backend_);
+
+            const bool exists = std::any_of(
+                sources_.begin(),
+                sources_.end(),
+                [&](const std::shared_ptr<IEventSource>& p) {
+                    return p && p.get() == op.src.get();
+                });
+            if (!exists) {
+                sources_.push_back(std::move(op.src));
+            }
+            continue;
+        }
+
+        // Remove
+        op.src->disarm(*backend_);
+        backend_->removeSource(op.src.get());
 
         auto it = std::remove_if(
             sources_.begin(),
             sources_.end(),
-            [&src](const std::shared_ptr<IEventSource>& p) {
-                return p && p.get() == src.get();
+            [&](const std::shared_ptr<IEventSource>& p) {
+                return p && p.get() == op.src.get();
             });
         sources_.erase(it, sources_.end());
     }

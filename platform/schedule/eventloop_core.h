@@ -83,12 +83,17 @@ private:
     void applyPendingChanges();
 
 private:
+    enum class PendingOpKind { Add, Remove };
+    struct PendingOp {
+        PendingOpKind kind;
+        std::shared_ptr<IEventSource> src;
+    };
+
     std::unique_ptr<IEventCoreBackend> backend_;
 
     std::mutex mu_;
     std::vector<std::shared_ptr<IEventSource>> sources_;
-    std::vector<std::shared_ptr<IEventSource>> pending_add_;
-    std::vector<std::shared_ptr<IEventSource>> pending_remove_;
+    std::vector<PendingOp> pending_ops_;
 
     bool in_dispatch_ = false;
 };
