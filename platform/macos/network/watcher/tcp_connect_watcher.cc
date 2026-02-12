@@ -163,8 +163,12 @@ private:
   void checkConnectResult() {
     if (canceled_ || fd_ < 0)
       return;
-
-    const int err = getSoErrorOr(fd_, EIO);
+    int err = 0;
+    socklen_t len = sizeof(err);
+    if (::getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len) != 0) {
+      fail(errno);
+      return;
+    }
     if (err != 0) {
       fail(err);
       return;
@@ -340,8 +344,12 @@ private:
   void checkConnectResult() {
     if (canceled_ || fd_ < 0)
       return;
-
-    const int err = getSoErrorOr(fd_, EIO);
+    int err = 0;
+    socklen_t len = sizeof(err);
+    if (::getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len) != 0) {
+      fail(errno);
+      return;
+    }
     if (err != 0) {
       fail(err);
       return;
