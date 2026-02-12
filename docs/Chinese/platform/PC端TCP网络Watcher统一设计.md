@@ -356,7 +356,28 @@ struct TcpConnectionOption {
    - stream 的观测结果不能反过来改变/推翻 Option 的意图；
    - Option 也不能假装是最终结果，最终结果以 stream/系统查询为准。
 
-### 4.4 ITcpAcceptWatcher（Server）
+---
+
+### 4.4 listen socket 创建的解耦（示例里的 makeListenSocket 去平台化）
+
+`example/tcp_server_example/main.cc` 里的 `makeListenSocket()` 是 Linux/POSIX 风格的示例代码，它的存在只为演示“accept watcher/connection watcher 的协作”，并不适合作为跨平台框架 API 的一部分。
+
+为了让 **PC 三端（Linux/macOS/Windows）** 的 server 入口统一，建议把“listen socket 创建”从示例/业务层剥离到平台层，并在统一层提供一个最小、清晰的抽象：
+
+1) **平台层负责创建 native listen socket**（包含：socket/bind/listen、非阻塞、CLOEXEC/可继承、REUSEADDR/REUSEPORT 等 best-effort 设置）。
+2) **统一层只接收一个“已准备好的 listen socket 所有权”**，并交给 `ITcpAcceptWatcher` 驱动 accept。
+
+推荐的演进方向（后续迭代，不在当前 watcher 核心里实现）：
+- 增加一个只承载“listen socket 所有权”的轻量结构体（类似 `ITcpStream` 的做法）：
+  - `struct ITcpListenSocket { kind tag + virtual ~dtor; /* 内部可持有 fd/SOCKET 等 */ };`
+  - accept watcher 工厂从 `intptr_t listen_handle` 演进为 `std::unique_ptr<ITcpListenSocket> listen_socket`。
+- 提供一个统一的工厂（内部按平台/后端分发）：
+  - `createTcpListenSocket(worker, IpEndpoint local, TcpListenOption option) -> std::unique_ptr<ITcpListenSocket>`
+  - 这样示例/业务层完全不需要 `#include <sys/socket.h>` 或 Windows 的 Winsock 细节。
+
+当前阶段为了推进 watcher 统一设计，accept watcher 已改为 **内部创建 listen socket**，示例/业务层不再直接操作 `socket/bind/listen`。
+
+### 4.5 ITcpAcceptWatcher（Server）
 职责：监听 socket readiness → accept 循环 → 为每个新连接触发回调。
 
 ```cpp
@@ -391,28 +412,7 @@ createTcpAcceptWatcher(IOWorker& worker,
   - `createTcpAcceptWatcher(worker, option, ...)` 内部负责：`socket/bind/listen` + 非阻塞设置 + best-effort 应用 listen 相关 option（其中 bind 地址来自 `option.local`）。
   - 创建成功后 listen socket 的所有权归 accept watcher；watcher `stop()/析构/close` 路径中负责关闭。
 
----
-
-## 9. listen socket 创建的解耦（示例里的 makeListenSocket 去平台化）
-
-`example/tcp_server_example/main.cc` 里的 `makeListenSocket()` 是 Linux/POSIX 风格的示例代码，它的存在只为演示“accept watcher/connection watcher 的协作”，并不适合作为跨平台框架 API 的一部分。
-
-为了让 **PC 三端（Linux/macOS/Windows）** 的 server 入口统一，建议把“listen socket 创建”从示例/业务层剥离到平台层，并在统一层提供一个最小、清晰的抽象：
-
-1) **平台层负责创建 native listen socket**（包含：socket/bind/listen、非阻塞、CLOEXEC/可继承、REUSEADDR/REUSEPORT 等 best-effort 设置）。
-2) **统一层只接收一个“已准备好的 listen socket 所有权”**，并交给 `ITcpAcceptWatcher` 驱动 accept。
-
-推荐的演进方向（后续迭代，不在当前 watcher 核心里实现）：
-- 增加一个只承载“listen socket 所有权”的轻量结构体（类似 `ITcpStream` 的做法）：
-  - `struct ITcpListenSocket { kind tag + virtual ~dtor; /* 内部可持有 fd/SOCKET 等 */ };`
-  - accept watcher 工厂从 `intptr_t listen_handle` 演进为 `std::unique_ptr<ITcpListenSocket> listen_socket`。
-- 提供一个统一的工厂（内部按平台/后端分发）：
-  - `createTcpListenSocket(worker, IpEndpoint local, TcpListenOption option) -> std::unique_ptr<ITcpListenSocket>`
-  - 这样示例/业务层完全不需要 `#include <sys/socket.h>` 或 Windows 的 Winsock 细节。
-
-当前阶段为了推进 watcher 统一设计，accept watcher 已改为 **内部创建 listen socket**，示例/业务层不再直接操作 `socket/bind/listen`。
-
-### 4.5 ITcpConnectWatcher（Client）
+### 4.6 ITcpConnectWatcher（Client）
 职责：发起非阻塞连接，连接成功后把“已连接 socket”移交给上层（通常用来创建 `ITcpConnectionWatcher`）。
 
 ```cpp
@@ -444,7 +444,7 @@ createTcpConnectWatcher(IOWorker& worker,
 - POSIX：`socket` + `O_NONBLOCK` + `connect`，`EINPROGRESS` 后监听可写，再用 `getsockopt(SO_ERROR)` 判定。
 - Windows(IOCP)：使用 `ConnectEx`（或非阻塞 connect + WSAEventSelect 方案不推荐）。`cancel()` 需要能尽快终止 pending connect（通常靠 `closesocket` 触发完成，或 `CancelIoEx`/`CancelIo`）。
 
-### 4.6 ITcpConnectionWatcher（Connected IO）
+### 4.7 ITcpConnectionWatcher（Connected IO）
 职责：对一个已连接的 socket，基于 worker 后端驱动读写与关闭事件；提供一个最小的发送缓冲。
 
 ```cpp
