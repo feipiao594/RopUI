@@ -22,7 +22,7 @@ using namespace RopHive::Network;
 #ifdef _WIN32
 #include <ws2tcpip.h>
 #define DEFAULT_BACKEND BackendType::WINDOWS_IOCP
-extern WSADATA wsaData;
+WSADATA wsaData;
 #endif
 
 /*
@@ -162,7 +162,7 @@ int main() {
     int ret = WSAStartup(MAKEWORD(2,2), &wsaData);
     if (ret != 0) {
         LOG(ERROR)("WSAStartup failed: %d\n", ret);
-        return;
+        return 1;
     }
 #endif
   logger::setMinLevel(LogLevel::DEBUG);
@@ -186,5 +186,8 @@ int main() {
   });
 
   hive.run();
+#if defined(_WIN32)
+    WSACleanup();
+#endif
   return 0;
 }

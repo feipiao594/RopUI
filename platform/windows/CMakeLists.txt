@@ -1,6 +1,5 @@
 set(ROPUI_PLATFORM_WINDOWS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/win32_wrapper.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/win32_wrapper.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/win32_backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/iocp_backend.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/win32_wakeup.cc
