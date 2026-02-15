@@ -89,6 +89,9 @@ private:
 };
 
 int main() {
+#if defined(_WIN32) or defined(_WIN64)
+    RopHive::Windows::global_init();
+#endif
     logger::setMinLevel(LogLevel::INFO);
     Hive::Options opt;
     opt.io_backend = DEFAULT_BACKEND;
