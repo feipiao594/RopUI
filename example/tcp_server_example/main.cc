@@ -17,7 +17,7 @@ using namespace RopHive::Network;
 #ifdef __linux__
 #define DEFAULT_BACKEND BackendType::LINUX_EPOLL
 #endif
-#ifdef __APPLE__ 
+#ifdef __APPLE__
 #define DEFAULT_BACKEND BackendType::MACOS_KQUEUE
 #endif
 #ifdef _WIN32
@@ -89,6 +89,9 @@ private:
 };
 
 int main() {
+#if defined(_WIN32) or defined(_WIN64)
+    RopHive::Windows::global_init();
+#endif
     logger::setMinLevel(LogLevel::INFO);
     Hive::Options opt;
     opt.io_backend = DEFAULT_BACKEND;

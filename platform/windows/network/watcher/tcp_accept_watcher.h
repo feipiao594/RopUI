@@ -1,0 +1,21 @@
+#ifndef _ROP_PLATFORM_WINDOWS_NETWORK_WATCHER_TCP_ACCEPT_WATCHER_H
+#define _ROP_PLATFORM_WINDOWS_NETWORK_WATCHER_TCP_ACCEPT_WATCHER_H
+
+#if defined(_WIN32) or defined(_WIN64)
+#include <memory>
+#include "../../../network/watcher/tcp_watchers.h"
+#include "../../../schedule/io_worker.h"
+
+namespace RopHive::Windows {
+    std::shared_ptr<RopHive::Network::ITcpAcceptWatcher>
+    createIocpTcpAcceptWatcher(RopHive::IOWorker& worker,
+                                RopHive::Network::TcpAcceptOption option,
+                                RopHive::Network::ITcpAcceptWatcher::OnAccept on_accept,
+                                RopHive::Network::ITcpAcceptWatcher::OnError on_error);
+
+
+}
+
+#endif // defined(_WIN32) or defined(_WIN64)
+
+#endif // _ROP_PLATFORM_WINDOWS_NETWORK_WATCHER_TCP_ACCEPT_WATCHER_H

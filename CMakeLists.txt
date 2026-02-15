@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(EXPORT_COMPILE_COMMANDS ON)
 
-option(ROPUI_BUILD_WAYLAND "Build wayland" ON)
+option(ROPUI_BUILD_WAYLAND "Build wayland" OFF)
 option(ROPUI_BUILD_EXAMPLES "Build examples" ON)
 option(ROPUI_BUILD_TESTS "Build tests" OFF)
 
