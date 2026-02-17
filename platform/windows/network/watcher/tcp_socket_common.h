@@ -5,9 +5,10 @@
 
 #define WIN32_LEAN_AND_MEAN
 
+#include "../../win32_wrapper.h"
+
 #include <mstcpip.h>
 #include <mswsock.h>
-#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -105,9 +106,10 @@ inline void bestEffortFillEndpoints(SOCKET fd,
   }
 }
 
-inline bool applyTcpNonBlock(SOCKET fd) {
+inline void applyTcpNonBlock(SOCKET fd) {
   u_long mode = 1;
-  return ::ioctlsocket(fd, FIONBIO, &mode) == 0;
+  if(::ioctlsocket(fd, FIONBIO, &mode) != 0)
+    LOG(WARN)("handle applyTcpNonBlock failed");
 }
 
 inline void applyCloseOnExecIfConfigured(SOCKET fd,
@@ -115,13 +117,15 @@ inline void applyCloseOnExecIfConfigured(SOCKET fd,
   if (!v.has_value())
     return;
   HANDLE h = reinterpret_cast<HANDLE>(fd);
+  auto ret = false;
   if (h == nullptr)
     return;
   if (*v) {
-    ::SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+    ret = ::SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
   } else {
-    ::SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+    ret = ::SetHandleInformation(h, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
   }
+  if(!ret) LOG(WARN)("fd applyCloseOnExecIfConfigured failed");
 }
 
 inline void applyTcpReuseAddrIfConfigured(SOCKET fd,
@@ -129,8 +133,9 @@ inline void applyTcpReuseAddrIfConfigured(SOCKET fd,
   if (!v.has_value())
     return;
   const BOOL opt = *v ? TRUE : FALSE;
-  (void)::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-                     reinterpret_cast<const char *>(&opt), sizeof(opt));
+  if (::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+                     reinterpret_cast<const char *>(&opt), sizeof(opt)) != 0)
+    LOG(WARN)("fd applyTcpReuseAddrIfConfigured failed");
 }
 
 inline std::tuple<LPFN_ACCEPTEX, DWORD> fetchAcceptEx(SOCKET fd) {
@@ -162,7 +167,8 @@ inline void applyTcpNoDelayIfConfigured(SOCKET fd,
   if (!v.has_value())
     return;
   const char opt = *v ? 1 : 0;
-  (void)::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+  if(::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) != 0)
+    LOG(WARN)("fd applyTcpNoDelayIfConfigured failed");
 }
 
 inline void applyKeepAliveIfConfigured(SOCKET fd,
@@ -173,8 +179,10 @@ inline void applyKeepAliveIfConfigured(SOCKET fd,
   if (!enable.has_value())
     return;
   const BOOL on = *enable ? TRUE : FALSE;
-  (void)::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
+  auto ret = false;
+  ret = ::setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE,
                      reinterpret_cast<const char *>(&on), sizeof(on));
+  if(!ret) LOG(WARN)("fd applyKeepAliveIfConfigured failed");
   if (!*enable)
     return;
 
@@ -186,10 +194,10 @@ inline void applyKeepAliveIfConfigured(SOCKET fd,
     kav.keepaliveinterval = static_cast<ULONG>(
         (interval_sec.has_value() ? *interval_sec : 1) * 1000u);
     DWORD bytes = 0;
-    (void)::WSAIoctl(fd, SIO_KEEPALIVE_VALS, &kav, sizeof(kav), nullptr, 0,
+    ret = ::WSAIoctl(fd, SIO_KEEPALIVE_VALS, &kav, sizeof(kav), nullptr, 0,
                      &bytes, nullptr, nullptr);
   }
-
+  if(!ret) LOG(WARN)("fd applyKeepAliveIfConfigured failed");
   (void)count;
 }
 
@@ -197,13 +205,15 @@ inline void applyBufSizeIfConfigured(SOCKET fd, const std::optional<int> &rcv,
                                      const std::optional<int> &snd) {
   if (rcv.has_value()) {
     const int v = *rcv;
-    (void)::setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
+    auto ret = ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
                        reinterpret_cast<const char *>(&v), sizeof(v));
+    if(!ret) LOG(WARN)("fd applyBufSizeIfConfigured set recv_buf failed");
   }
   if (snd.has_value()) {
     const int v = *snd;
-    (void)::setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
+    auto ret = ::setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
                        reinterpret_cast<const char *>(&v), sizeof(v));
+    if(!ret) LOG(WARN)("fd applyBufSizeIfConfigured set send_buf failed");
   }
 }
 
@@ -219,8 +229,9 @@ inline void applyLingerIfConfigured(SOCKET fd,
     lin.l_onoff = 1;
     lin.l_linger = static_cast<u_short>(*linger_sec);
   }
-  (void)::setsockopt(fd, SOL_SOCKET, SO_LINGER,
+  auto ret = ::setsockopt(fd, SOL_SOCKET, SO_LINGER,
                      reinterpret_cast<const char *>(&lin), sizeof(lin));
+  if(!ret) LOG(WARN)("fd applyLingerIfConfigured failed");
 }
 
 } // namespace RopHive::Windows::TcpDetail

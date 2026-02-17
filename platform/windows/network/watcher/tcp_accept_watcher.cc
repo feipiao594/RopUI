@@ -250,7 +250,7 @@ private:
   LPFN_ACCEPTEX accept_ex_{nullptr};
   std::vector<AcceptOp> ops_;
 
-  std::shared_ptr<RopHive::Windows::IocpEventSource> source_;
+  std::shared_ptr<RopHive::Windows::IocpHandleCompletionEventSource> source_;
 };
 
 } // namespace
