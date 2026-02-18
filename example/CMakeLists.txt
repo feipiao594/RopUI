@@ -17,4 +17,10 @@ endif()
 if(WIN32)
 add_subdirectory(iocp_tcp_server_example)
 add_subdirectory(win32_window_example)
+
+
+# 连接 Windows Socket 库 ws2_32.lib，提供 Winsock API 的实现
+target_link_libraries(tcp_server_example PRIVATE ws2_32)
+target_link_libraries(tcp_server_async_example PRIVATE ws2_32)
+target_link_libraries(tcp_client_example PRIVATE ws2_32)
 endif()

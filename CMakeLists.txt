@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(EXPORT_COMPILE_COMMANDS ON)
 
-option(ROPUI_BUILD_WAYLAND "Build wayland" ON)
+option(ROPUI_BUILD_WAYLAND "Build wayland" OFF)
 option(ROPUI_BUILD_EXAMPLES "Build examples" ON)
 option(ROPUI_BUILD_TESTS "Build tests" OFF)
 
@@ -38,6 +38,10 @@ target_link_libraries(ropui
         ropui_log
         ropui_concurrency
 )
+
+if(WIN32)
+    target_link_libraries(ropui PRIVATE ws2_32 mswsock)
+endif()
 
 if(APPLE)
 find_library(APPKIT_LIBRARY AppKit REQUIRED)

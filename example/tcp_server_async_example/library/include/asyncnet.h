@@ -10,7 +10,6 @@
 #include <string_view>
 #include <functional>
 #include <utility>
-#include <unistd.h>
 #include <chrono>
 
 // Executor is built on top of IOWorker.
@@ -254,7 +253,7 @@ public:
                 // Programming error: awaiting a Task outside of an executor resume context.
                 const std::string_view msg =
                     "asyncnet fatal: Task awaited without bound Executor (tls_current_executor is null)\n";
-                ::write(2, msg.data(), msg.size());
+                LOG(INFO)("%s",msg.data());
                 std::abort();
             }
             h.promise().exec->schedule(h);
@@ -345,7 +344,7 @@ public:
             if (!h.promise().exec) {
                 const std::string_view msg =
                     "asyncnet fatal: Task<void> awaited without bound Executor (tls_current_executor is null)\n";
-                ::write(2, msg.data(), msg.size());
+                LOG(INFO)("%s",msg.data());
                 std::abort();
             }
             h.promise().exec->schedule(h);

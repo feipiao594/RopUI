@@ -6,6 +6,7 @@
 #include <functional>
 #include <unordered_map>
 #include <vector>
+#include <cstdint>
 
 #include "../win32_wrapper.h"
 
