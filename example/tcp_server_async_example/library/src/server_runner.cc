@@ -1,4 +1,3 @@
-#include "server_runner.h"
 #include "app.h"
 
 #include <csignal>
