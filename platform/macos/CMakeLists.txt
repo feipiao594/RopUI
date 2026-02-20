@@ -6,7 +6,10 @@ set(ROPUI_PLATFORM_MACOS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/kqueue_wakeup.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/cocoa_wakeup.mm
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/kqueue_worker_wakeup.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/kqueue_worker_timer.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/poll_worker_timer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/cocoa_worker_wakeup.mm
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/cocoa_worker_timer.mm
     ${CMAKE_CURRENT_SOURCE_DIR}/network/watcher/tcp_accept_watcher.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/network/watcher/tcp_connect_watcher.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/network/watcher/tcp_connection_watcher.cc
