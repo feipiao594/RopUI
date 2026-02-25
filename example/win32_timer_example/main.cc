@@ -3,6 +3,7 @@
 #include  <platform/windows/schedule/watcher/win32_worker_timer.h>
 #include <platform/schedule/io_worker.h>
 #include <chrono>
+#include <iostream>
 
 #ifdef __linux__
 #define DEFAULT_BACKEND BackendType::LINUX_EPOLL
@@ -12,9 +13,22 @@
 #endif
 #ifdef _WIN32
 #include <ws2tcpip.h>
-#define DEFAULT_BACKEND BackendType::WINDOWS_IOCP
+#define DEFAULT_BACKEND BackendType::WINDOWS_WIN32
 WSADATA wsaData;
 #endif
+
+void enableANSI();
+
+// 七数码管结构
+struct Segments {
+    bool a, b, c, d, e, f, g;
+};
+
+Segments decodeBCD(int digit);
+
+
+void printDigit(const Segments& s, int row);
+void displayClock(uint64_t totalSeconds);
 
 
 int main(int argc, char* argv[]) {
@@ -28,26 +42,35 @@ int main(int argc, char* argv[]) {
     }
 #endif
     logger::setMinLevel(LogLevel::DEBUG);
-    Hive::Options opt;
+
+    Hive hive;
+    auto opt = hive.options();
     opt.io_backend = DEFAULT_BACKEND;
 
-    Hive hive(opt);
     auto worker = std::make_shared<IOWorker>(opt);
     hive.attachIOWorker(worker);
+
+    enableANSI();
+
 
     hive.postToWorker(0, [worker] {
         auto* self = IOWorker::currentWorker();
         if (!self) return;
         using namespace std::chrono_literals;
 
-        auto watcher = std::make_shared<Windows::Win32WorkerTimerWatcher>(*self, [worker] {
-            LOG(INFO)("Timer fired after 1 second");
-
+        auto counter = std::make_shared<std::chrono::duration<uint64_t>>(0s);
+        auto watcher = std::make_shared<Windows::Win32WorkerTimerWatcher>(*self, [counter, worker] {
+            std::cout << "\033[2J\033[H"; // clear console
+            std::cout << "Timer fired at: " << std::endl;
+            displayClock(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+            std::cout << "Current counter is: " << std::endl;
+            displayClock(counter->count());
+            *counter += 1s;
         });
         self->adoptWatcher(watcher);
-        watcher->setSpec(1ns, 100ns);
+        watcher->setSpec(3s, 1s);
         watcher->start();
-        LOG(INFO)("Timer started with 1 second initial delay and 1 second interval");
+        LOG(INFO)("Timer will start within 3 seconds......");
 
     });
 
@@ -56,4 +79,79 @@ int main(int argc, char* argv[]) {
     WSACleanup();
 #endif
     return 0;
+}
+
+
+void enableANSI() {
+#ifdef _WIN32
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD dwMode = 0;
+    GetConsoleMode(hOut, &dwMode);
+    SetConsoleMode(hOut, dwMode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#endif
+}
+
+Segments decodeBCD(int digit)
+{
+    bool A = digit & 0b1000;
+    bool B = digit & 0b0100;
+    bool C = digit & 0b0010;
+    bool D = digit & 0b0001;
+
+    Segments s{};
+
+    // 数码管控制逻辑, 使用数电组合逻辑实现
+    s.a = A || C || (B && D) || (!B && !D);
+    s.b = !B || (!C && !D) || (C && D);
+    s.c = B || !C || D;
+    s.d = A || (C && !D) || (!B && C) || (!B && !D) || (B && !C && D);
+    s.e = (!B && !D) || (C && !D);
+    s.f = A || (!C && !D) || (B && !C) || (B && !D);
+    s.g = A || (B && !C) || (!B && C) || (C && !D);
+
+    return s;
+}
+
+void printDigit(const Segments& s, int row)
+{
+    if (row == 0)
+        std::cout << " " << (s.a ? "_" : " ") << " ";
+    else if (row == 1)
+        std::cout << (s.f ? "|" : " ")
+             << (s.g ? "_" : " ")
+             << (s.b ? "|" : " ");
+    else
+        std::cout << (s.e ? "|" : " ")
+             << (s.d ? "_" : " ")
+             << (s.c ? "|" : " ");
+}
+
+void displayClock(uint64_t totalSeconds)
+{
+    uint64_t hours   = totalSeconds / 3600;
+    uint64_t minutes = (totalSeconds % 3600) / 60;
+    uint64_t seconds = totalSeconds % 60;
+
+    int digits[6] = {
+        int((hours / 10) % 10),
+        int(hours % 10),
+        int(minutes / 10),
+        int(minutes % 10),
+        int(seconds / 10),
+        int(seconds % 10)
+    };
+
+
+    for (int row = 0; row < 3; row++)
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            Segments seg = decodeBCD(digits[i]);
+            printDigit(seg, row);
+
+            if (i == 1 || i == 3)
+                std::cout << (row == 1 ? " . " : "   ");
+        }
+        std::cout << std::endl;
+    }
 }
