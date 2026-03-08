@@ -46,7 +46,7 @@ Win32WorkerTimerWatcher::Win32WorkerTimerWatcher(IOWorker& worker, std::function
     state_->timer = ::CreateWaitableTimerExW(
         nullptr,
         nullptr,
-        0,
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
         TIMER_MODIFY_STATE | SYNCHRONIZE);
     if (!state_->timer || state_->timer == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("CreateWaitableTimerExW failed");
@@ -91,6 +91,7 @@ void Win32WorkerTimerWatcher::setSpec(std::chrono::nanoseconds initial_delay,
         return;
     }
 
+    // when intervel is not zero, init is zero, use intervel
     const auto first =
         interval > std::chrono::nanoseconds::zero()
             ? (initial_delay > std::chrono::nanoseconds::zero() ? initial_delay : interval)

@@ -93,7 +93,7 @@ IocpWorkerTimerWatcher::IocpWorkerTimerWatcher(IOWorker& worker, std::function<v
     HANDLE timer = ::CreateWaitableTimerExW(
         nullptr,
         nullptr,
-        0,
+        CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
         TIMER_MODIFY_STATE | SYNCHRONIZE);
     if (!timer || timer == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("CreateWaitableTimerExW failed");
@@ -145,6 +145,7 @@ void IocpWorkerTimerWatcher::setSpec(std::chrono::nanoseconds initial_delay,
         return;
     }
 
+    // when intervel is not zero, init is zero, use intervel
     const auto first =
         interval > std::chrono::nanoseconds::zero()
             ? (initial_delay > std::chrono::nanoseconds::zero() ? initial_delay : interval)

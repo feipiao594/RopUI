@@ -1,6 +1,6 @@
 #include <log.hpp>
 #include <platform/schedule/hive.h>
-#include  <platform/windows/schedule/watcher/win32_worker_timer.h>
+#include <platform/windows/schedule/watcher/win32_worker_timer.h>
 #include <platform/schedule/io_worker.h>
 #include <chrono>
 #include <iostream>
@@ -29,6 +29,15 @@ Segments decodeBCD(int digit);
 
 void printDigit(const Segments& s, int row);
 void displayClock(uint64_t totalSeconds);
+uint64_t todaySeconds() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm* local_tm = std::localtime(&now_c);
+    uint64_t today_seconds = (local_tm->tm_hour * 3600) + 
+                         (local_tm->tm_min * 60) + 
+                         local_tm->tm_sec;
+    return today_seconds;
+}
 
 
 int main(int argc, char* argv[]) {
@@ -60,9 +69,9 @@ int main(int argc, char* argv[]) {
 
         auto counter = std::make_shared<std::chrono::duration<uint64_t>>(0s);
         auto watcher = std::make_shared<Windows::Win32WorkerTimerWatcher>(*self, [counter, worker] {
-            std::cout << "\033[2J\033[H"; // clear console
-            std::cout << "Timer fired at: " << std::endl;
-            displayClock(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+            std::cout << "\033[2J\033[H\n\n"; // clear console
+            std::cout << "Local time now: " << std::endl;
+            displayClock(todaySeconds());
             std::cout << "Current counter is: " << std::endl;
             displayClock(counter->count());
             *counter += 1s;
