@@ -4,6 +4,8 @@
 
 #include <algorithm>
 
+#include <log.hpp>
+
 namespace RopHive::Windows {
 
 Win32MessageSource::Win32MessageSource(UINT msg)
@@ -11,6 +13,7 @@ Win32MessageSource::Win32MessageSource(UINT msg)
 
 void Win32MessageSource::arm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source arm to a dismatch backend");
         return;
     }
     armed_ = true;
@@ -18,6 +21,7 @@ void Win32MessageSource::arm(IEventCoreBackend& backend) {
 
 void Win32MessageSource::disarm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source disarm to a dismatch backend");
         return;
     }
     armed_ = false;

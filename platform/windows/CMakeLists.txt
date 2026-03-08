@@ -5,7 +5,9 @@ set(ROPUI_PLATFORM_WINDOWS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/win32_wakeup.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/iocp_wakeup.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/win32_worker_wakeup.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/win32_worker_timer.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/iocp_worker_wakeup.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/schedule/watcher/iocp_worker_timer.cc
 
 # Network backends
     ${CMAKE_CURRENT_SOURCE_DIR}/network/watcher/tcp_accept_watcher.cc
