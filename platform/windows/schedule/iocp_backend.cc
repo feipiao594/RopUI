@@ -4,6 +4,8 @@
 
 #ifdef _WIN32
 
+#include <log.hpp>
+
 namespace RopHive::Windows {
 
 IocpEventSource::IocpEventSource(ULONG_PTR key, HANDLE handle)
@@ -15,6 +17,7 @@ void IocpEventSource::arm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
         armed_ = false;
         backend_ = nullptr;
+        LOG(WARN)("Source arm to a dismatch backend");
         return;
     }
     armed_ = true;
@@ -27,6 +30,7 @@ void IocpEventSource::arm(IEventCoreBackend& backend) {
 
 void IocpEventSource::disarm(IEventCoreBackend& backend) {
     if (!isSourceMatchBackend(&backend)) {
+        LOG(WARN)("Source disarm to a dismatch backend");
         return;
     }
     armed_ = false;
