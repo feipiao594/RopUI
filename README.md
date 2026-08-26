@@ -1,8 +1,10 @@
+
+
 # RopUI
 Personal project about cpp multiplatform ui framework.
 
 # Completion
-- Mult-thread EventLoop(now supported Windows/Linux/MacOS) (optimizing...)
+- Multi-thread EventLoop(now supported Windows/Linux/MacOS) (optimizing...)
 
 # TODO
 - Network support(TCP/UDP)
